@@ -5,7 +5,7 @@ import subprocess
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 
-TOKEN = "8373058261:AAHpQtkK6ULlqVydm6FDNaVYz-LFqFPQqJ8"
+TOKEN = "8373058261:AAG7_Fo2P_6kv6hHRp5xcl4QghDRpX5TryA"
 
 DOWNLOAD_DIR = "downloads"
 FREE_LIMIT = 50 * 1024 * 1024
