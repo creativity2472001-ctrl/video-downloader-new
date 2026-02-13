@@ -1,10 +1,10 @@
 import os
 import asyncio
 import yt_dlp
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand, InputFile
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 
-TOKEN = "8373058261:AAG7_Fo2P_6kv6hHRp5xcl4QghDRpX5TryA"  # ضع التوكن هنا
+TOKEN = ""  # ضع التوكن هنا
 
 DOWNLOAD_DIR = "downloads"
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
@@ -29,6 +29,7 @@ AUDIO_OPTIONS.update({
     }],
 })
 
+# ----------------- اللغة -----------------
 LANGUAGE_DATA = {
     "en": {
         "welcome_free": "📌 Welcome! Free limit: 50MB.",
@@ -59,8 +60,8 @@ async def start_message(message, context):
     msg = LANGUAGE_DATA[lang]["welcome_premium"] if user_id in PREMIUM_USERS else LANGUAGE_DATA[lang]["welcome_free"]
 
     keyboard = [
-        [InlineKeyboardButton("🌐 " + ("English" if lang == "en" else "عربي"), callback_data="select_lang")],
-        [InlineKeyboardButton("🔄 Restart", callback_data="restart"),
+        [InlineKeyboardButton("🌐 " + ("English" if lang=="en" else "عربي"), callback_data="select_lang"),
+         InlineKeyboardButton("🔄 Restart", callback_data="restart"),
          InlineKeyboardButton("📖 Help", callback_data="help")]
     ]
 
@@ -82,15 +83,15 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def select_language(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     keyboard = [
-        [InlineKeyboardButton("🇸🇦 عربي", callback_data="lang_ar")],
-        [InlineKeyboardButton("🇺🇸 English", callback_data="lang_en")]
+        [InlineKeyboardButton("🇸🇦 عربي", callback_data="lang_ar"),
+         InlineKeyboardButton("🇺🇸 English", callback_data="lang_en")]
     ]
-    await query.message.reply_text("🌐 Choose language:", reply_markup=InlineKeyboardMarkup(keyboard))
+    await query.message.reply_text("🌐 اختر اللغة:", reply_markup=InlineKeyboardMarkup(keyboard))
 
 async def set_language(update: Update, context: ContextTypes.DEFAULT_TYPE, lang_code):
     query = update.callback_query
     user_language[query.from_user.id] = lang_code
-    await query.message.edit_text("✅ Updated language!")
+    await query.message.edit_text("✅ تم تحديث اللغة!")
     await start_message(query.message, context)
 
 # ----------------- RESTART -----------------
@@ -101,6 +102,8 @@ async def restart(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await start_message(query.message, context)
 
 # ----------------- DOWNLOAD -----------------
+HOURGLASS_VIDEO = "hourglass.mp4"  # ضع هنا مسار ملف فيديو الساعة الرمليه
+
 async def download_and_send(message, url, mode):
     user_id = message.from_user.id
     lang = user_language.get(user_id, "ar")
@@ -108,20 +111,11 @@ async def download_and_send(message, url, mode):
     # إزالة أزرار الفيديو/الصوت قبل التحميل
     await message.edit_reply_markup(reply_markup=None)
 
-    # ⏳ ساعة رمليه حقيقية تتحرك كسائل
-    status = await message.reply_text("⏳ Loading...")
-    sand_levels = ["⬛⬛⬛⬛⬛", "🟫⬛⬛⬛⬛", "🟫🟫⬛⬛⬛", "🟫🟫🟫⬛⬛", "🟫🟫🟫🟫⬛", "🟫🟫🟫🟫🟫"]
-    async def animate_hourglass(msg):
-        try:
-            while True:
-                for i in range(len(sand_levels)):
-                    text = f"⏳\n{sand_levels[i]}\n{''.join(reversed(sand_levels[i]))}"
-                    await msg.edit_text(text)
-                    await asyncio.sleep(0.6)
-        except asyncio.CancelledError:
-            pass
-
-    animation_task = asyncio.create_task(animate_hourglass(status))
+    # ⏳ إرسال فيديو الساعة الرمليه
+    try:
+        hourglass_msg = await message.reply_video(InputFile(HOURGLASS_VIDEO), caption="⏳ جاري التحميل...")
+    except:
+        hourglass_msg = await message.reply_text("⏳ جاري التحميل...")
 
     try:
         loop = asyncio.get_event_loop()
@@ -136,16 +130,15 @@ async def download_and_send(message, url, mode):
             with yt_dlp.YoutubeDL(BASE_YDL_OPTS) as ydl:
                 info = await loop.run_in_executor(None, lambda: ydl.extract_info(url, download=True))
                 filename = ydl.prepare_filename(info)
-            await message.reply_video(open(filename, "rb"))
+            # الفيديو بأبعاده الطبيعية (عرض > ارتفاع)
+            await message.reply_video(open(filename, "rb"), supports_streaming=True)
             os.remove(filename)
 
-        animation_task.cancel()
-        await status.delete()
-
+        # حذف الساعة الرمليه بعد الانتهاء
+        await hourglass_msg.delete()
     except Exception as e:
         print(e)
-        animation_task.cancel()
-        await status.delete()
+        await hourglass_msg.delete()
 
 # ----------------- HANDLE LINK -----------------
 async def handle_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -160,8 +153,8 @@ async def handle_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["url"] = url
 
     keyboard = [
-        [InlineKeyboardButton("🎬 Video", callback_data="video")],
-        [InlineKeyboardButton("🎵 Audio", callback_data="audio")]
+        [InlineKeyboardButton("🎬 Video", callback_data="video"),
+         InlineKeyboardButton("🎵 Audio", callback_data="audio")]
     ]
 
     await update.message.reply_text(
