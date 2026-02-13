@@ -4,7 +4,7 @@ import yt_dlp
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 
-TOKEN = "YOUR_TOKEN_HERE"
+TOKEN = "8373058261:AAG7_Fo2P_6kv6hHRp5xcl4QghDRpX5TryA"
 
 DOWNLOAD_DIR = "downloads"
 FREE_LIMIT = 50 * 1024 * 1024
