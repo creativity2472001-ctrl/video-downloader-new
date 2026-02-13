@@ -35,10 +35,9 @@ LANGUAGE_DATA = {
         "welcome_premium": "💎 Welcome Premium user! Limit: 200MB.",
         "send_link": "🚀 Send link",
         "choose_mode": "Choose download type:",
-        "help_text": "📖 Download instructions:\n1️⃣ Open Instagram/TikTok/YouTube\n2️⃣ Choose a video\n3️⃣ Tap ↪️ Share\n4️⃣ Copy link\n5️⃣ Send it here\n⚡ You'll get it in seconds.",
+        "help_text": "📖 Download instructions:\n1️⃣ Open Instagram/TikTok/YouTube\n2️⃣ Choose a video\n3️⃣ Tap ↪️ Share\n4️⃣ Copy link\n5️⃣ Send it here\n⚡ You'll receive it in seconds.",
         "restart_msg": "🔄 Bot restarted!",
-        "invalid": "❌ Send a valid link.",
-        "hourglass": ["⏳", "⌛", "⏳"]
+        "invalid": "❌ Send a valid link."
     },
     "ar": {
         "welcome_free": "📌 مرحباً! الحد المجاني 50MB.",
@@ -47,8 +46,7 @@ LANGUAGE_DATA = {
         "choose_mode": "اختر نوع التحميل:",
         "help_text": "📖 طريقة التحميل:\n1️⃣ افتح Instagram/TikTok/YouTube\n2️⃣ اختر الفيديو\n3️⃣ اضغط مشاركة ↪️\n4️⃣ انسخ الرابط\n5️⃣ أرسل الرابط للبوت\n⚡ سيتم الإرسال خلال ثوانٍ.",
         "restart_msg": "🔄 تم إعادة تشغيل البوت!",
-        "invalid": "❌ أرسل رابط صحيح.",
-        "hourglass": ["⏳", "⌛", "⏳"]
+        "invalid": "❌ أرسل رابط صحيح."
     }
 }
 
@@ -61,9 +59,9 @@ async def start_message(message, context):
     msg = LANGUAGE_DATA[lang]["welcome_premium"] if user_id in PREMIUM_USERS else LANGUAGE_DATA[lang]["welcome_free"]
 
     keyboard = [
-        [InlineKeyboardButton("🔄 Restart", callback_data="restart")],
-        [InlineKeyboardButton("🌐 Language", callback_data="select_lang")],
-        [InlineKeyboardButton("📖 Help", callback_data="help")]
+        [InlineKeyboardButton("🌐 " + ("English" if lang == "en" else "عربي"), callback_data="select_lang")],
+        [InlineKeyboardButton("🔄 Restart", callback_data="restart"),
+         InlineKeyboardButton("📖 Help", callback_data="help")]
     ]
 
     await message.reply_text(
@@ -92,7 +90,7 @@ async def select_language(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def set_language(update: Update, context: ContextTypes.DEFAULT_TYPE, lang_code):
     query = update.callback_query
     user_language[query.from_user.id] = lang_code
-    await query.message.reply_text("✅ Updated!")
+    await query.message.edit_text("✅ Updated language!")
     await start_message(query.message, context)
 
 # ----------------- RESTART -----------------
@@ -106,10 +104,25 @@ async def restart(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def download_and_send(message, url, mode):
     user_id = message.from_user.id
     lang = user_language.get(user_id, "ar")
-    hourglass_frames = LANGUAGE_DATA[lang]["hourglass"]
 
-    # ⏳ رسالة الساعة الرمليه المتحركة
-    status = await message.reply_text(hourglass_frames[0])
+    # إزالة أزرار الفيديو/الصوت قبل التحميل
+    await message.edit_reply_markup(reply_markup=None)
+
+    # ⏳ ساعة رمليه حقيقية تتحرك كسائل
+    status = await message.reply_text("⏳ Loading...")
+    sand_levels = ["⬛⬛⬛⬛⬛", "🟫⬛⬛⬛⬛", "🟫🟫⬛⬛⬛", "🟫🟫🟫⬛⬛", "🟫🟫🟫🟫⬛", "🟫🟫🟫🟫🟫"]
+    async def animate_hourglass(msg):
+        try:
+            while True:
+                for i in range(len(sand_levels)):
+                    text = f"⏳\n{sand_levels[i]}\n{''.join(reversed(sand_levels[i]))}"
+                    await msg.edit_text(text)
+                    await asyncio.sleep(0.6)
+        except asyncio.CancelledError:
+            pass
+
+    animation_task = asyncio.create_task(animate_hourglass(status))
+
     try:
         loop = asyncio.get_event_loop()
 
@@ -119,22 +132,19 @@ async def download_and_send(message, url, mode):
                 filename = ydl.prepare_filename(info).rsplit(".", 1)[0] + ".mp3"
             await message.reply_audio(open(filename, "rb"))
             os.remove(filename)
-
         else:
             with yt_dlp.YoutubeDL(BASE_YDL_OPTS) as ydl:
                 info = await loop.run_in_executor(None, lambda: ydl.extract_info(url, download=True))
                 filename = ydl.prepare_filename(info)
-
-            # الفيديو يرسل بالحجم الأصلي بدون زوم
             await message.reply_video(open(filename, "rb"))
             os.remove(filename)
 
-        # إزالة رسالة الساعة بعد إرسال الفيديو
+        animation_task.cancel()
         await status.delete()
 
     except Exception as e:
         print(e)
-        # تجاهل أي خطأ ولا توقف إرسال الفيديو
+        animation_task.cancel()
         await status.delete()
 
 # ----------------- HANDLE LINK -----------------
@@ -163,7 +173,6 @@ async def handle_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-
     data = query.data
 
     if data == "help":
