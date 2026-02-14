@@ -63,6 +63,7 @@ def t(user_id, key):
 # ================= Commands =================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # زر القائمة الصغيرة
     keyboard = [
         [KeyboardButton("/language"), KeyboardButton("/help"), KeyboardButton("/restart")]
     ]
@@ -79,7 +80,10 @@ async def download_and_send(chat, url, mode, limit, user_id):
     loading_msg = await chat.send_message(t(user_id, "loading"))
 
     try:
-        options = VIDEO_OPTIONS_BASE.copy() if mode == "video" else AUDIO_OPTIONS.copy()
+        if mode == "video":
+            options = VIDEO_OPTIONS_BASE.copy()
+        else:
+            options = AUDIO_OPTIONS.copy()
 
         def download():
             with yt_dlp.YoutubeDL(options) as ydl:
@@ -89,26 +93,28 @@ async def download_and_send(chat, url, mode, limit, user_id):
         loop = asyncio.get_event_loop()
         filename, title = await loop.run_in_executor(None, download)
 
-        # لو الصوت
         if mode == "audio":
             filename = filename.rsplit(".", 1)[0] + ".mp3"
             with open(filename, "rb") as f:
                 await chat.send_audio(f, caption=f"🎵 {title}")
             await loading_msg.delete()
-            return  # 🔹 لا نحذف الملف، محفوظ في downloads
+            os.remove(filename)
+            return
 
-        # لو الفيديو
         if os.path.getsize(filename) > limit:
             await loading_msg.edit_text("⚠️ الحجم كبير — سيتم إرسال الصوت فقط")
             await download_and_send(chat, url, "audio", limit, user_id)
             return
 
-        # 🔹 نرسل الفيديو كملف (send_document) ليحفظ تلقائياً في الاستوديو
         with open(filename, "rb") as f:
-            await chat.send_document(f, caption=f"🎬 {title}")
+            await chat.send_video(
+                f,
+                caption=f"🎬 {title}",
+                supports_streaming=True
+            )
 
         await loading_msg.delete()
-        # 🔹 الملف يبقى محفوظ في downloads
+        os.remove(filename)
 
     except Exception as e:
         print(e)
@@ -142,6 +148,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     url = context.user_data.get("url")
     limit = PREMIUM_LIMIT if user_id in PREMIUM_USERS else FREE_LIMIT
 
+    # ===== LANGUAGE MENU =====
     if data == "language":
         keyboard = [
             [InlineKeyboardButton("🇸🇦 عربي", callback_data="lang_ar"),
@@ -163,21 +170,24 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(t(user_id, "lang_set_en"))
         return
 
+    # ===== HELP =====
     elif data == "help":
         await query.edit_message_text(t(user_id, "help_text"))
         return
 
+    # ===== RESTART =====
     elif data == "restart":
         context.user_data.clear()
         await query.edit_message_text(t(user_id, "restart_msg"))
         return
 
+    # ===== VIDEO / AUDIO =====
     elif data in ["video", "audio"]:
         await query.message.delete()
         await download_and_send(update.effective_chat, url, data, limit, user_id)
         return
 
-# ================= Command Handlers للقائمة الصغيرة =================
+# ================= COMMAND HANDLERS FOR REPLY KEYBOARD =================
 
 async def language_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
