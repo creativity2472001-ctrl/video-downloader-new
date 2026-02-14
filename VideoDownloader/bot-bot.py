@@ -20,9 +20,10 @@ os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
 PREMIUM_USERS = {123456789}
 
-# ⚡ صيغة سريعة جدًا (بدون دمج ثقيل إن وجد mp4 جاهز)
+# ⚡ صيغة تحافظ على الأبعاد الأصلية بدون زوم
 VIDEO_OPTIONS_BASE = {
-    'format': '18/22/best',
+    'format': 'bestvideo+bestaudio/best',
+    'merge_output_format': 'mp4',
     'outtmpl': f'{DOWNLOAD_DIR}/%(title)s.%(ext)s',
     'noplaylist': True,
     'concurrent_fragment_downloads': 8,
@@ -40,27 +41,6 @@ AUDIO_OPTIONS = {
     'quiet': True
 }
 
-# ================= Progress Hook =================
-
-def progress_hook_factory(message, loop):
-    last_percent = {"value": 0}
-
-    def hook(d):
-        if d['status'] == 'downloading':
-            percent_str = d.get('_percent_str', '0%').strip()
-            try:
-                percent = float(percent_str.replace('%', ''))
-                if percent - last_percent["value"] >= 5:
-                    last_percent["value"] = percent
-                    asyncio.run_coroutine_threadsafe(
-                        message.edit_text(f"⏳ جاري التحميل... {percent:.0f}%"),
-                        loop
-                    )
-            except:
-                pass
-
-    return hook
-
 # ================= Commands =================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -75,8 +55,7 @@ async def restart_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ================= Download Core =================
 
 async def download_and_send(chat, url, mode, limit):
-    loading_msg = await chat.send_message("⏳ جاري التحميل... 0%")
-    loop = asyncio.get_event_loop()
+    loading_msg = await chat.send_message("⏳ جاري التحميل...")
 
     try:
         if mode == "video":
@@ -84,13 +63,12 @@ async def download_and_send(chat, url, mode, limit):
         else:
             options = AUDIO_OPTIONS.copy()
 
-        options['progress_hooks'] = [progress_hook_factory(loading_msg, loop)]
-
         def download():
             with yt_dlp.YoutubeDL(options) as ydl:
                 info = ydl.extract_info(url, download=True)
                 return ydl.prepare_filename(info), info.get("title", "بدون عنوان")
 
+        loop = asyncio.get_event_loop()
         filename, title = await loop.run_in_executor(None, download)
 
         # لو صوت
