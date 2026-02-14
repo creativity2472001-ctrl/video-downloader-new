@@ -1,16 +1,16 @@
 import os
 import asyncio
 import yt_dlp
-from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+import subprocess
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 
-TOKEN = "8373058261:AAG7_Fo2P_6kv6hHRp5xcl4QghDRpX5TryA"
+TOKEN = "8373058261:AAHpQtkK6ULlqVydm6FDNaVYz-LFqFPQqJ8"
 DOWNLOAD_DIR = "downloads"
 FREE_LIMIT = 50 * 1024 * 1024   # 50MB للمجاني
 PREMIUM_LIMIT = 200 * 1024 * 1024  # 200MB للمدفوع
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
-# قائمة المستخدمين المدفوعين (ضع الـ user_id هنا)
 PREMIUM_USERS = {123456789, 987654321}
 
 VIDEO_OPTIONS = {
@@ -41,29 +41,34 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         f"{msg}\n\n"
         "🎬 أرسل رابط الفيديو من YouTube, TikTok, Instagram أو Facebook.\n"
-        "يمكنك استخدام الأوامر:\n"
-        "▶️ /video <link> لتحميل الفيديو\n"
-        "🎵 /audio <link> لتحميل الصوت فقط\n"
-        "أو أرسل الرابط مباشرة وسأختار لك حسب الحجم."
+        "سيظهر لك خيار: فيديو أو صوت."
     )
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "📌 استخدام البوت:\n"
         "1️⃣ أرسل رابط الفيديو مباشرة\n"
-        "2️⃣ إذا كان أصغر من الحد المسموح به سيتم إرساله مباشرة\n"
-        "3️⃣ إذا أكبر، سيتم إرسال الصوت فقط\n\n"
-        "أوامر إضافية:\n"
-        "▶️ /video <link> لتحميل الفيديو\n"
-        "🎵 /audio <link> لتحميل الصوت فقط"
+        "2️⃣ سيظهر لك خيار: فيديو أو صوت\n"
+        "3️⃣ إذا كان الفيديو أكبر من الحد سيتم ضغطه أو تحويله لصوت\n\n"
+        "⚡ سريع، بسيط، واحترافي!"
     )
 
 def get_video_info(url):
     with yt_dlp.YoutubeDL({'quiet': True}) as ydl:
         return ydl.extract_info(url, download=False)
 
-async def download_and_send(update: Update, url: str, mode: str, limit: int):
-    status = await update.message.reply_text("🔍 جاري التحليل...")
+def compress_video(input_path, output_path, target_size):
+    command = [
+        "ffmpeg", "-y", "-i", input_path,
+        "-vcodec", "libx264", "-crf", "28", "-preset", "fast",
+        "-acodec", "aac", "-b:a", "128k",
+        output_path
+    ]
+    subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return output_path
+
+async def download_and_send(message, url: str, mode: str, limit: int):
+    status = await message.reply_text("🔍 جاري التحليل...")
 
     try:
         loop = asyncio.get_event_loop()
@@ -80,7 +85,7 @@ async def download_and_send(update: Update, url: str, mode: str, limit: int):
                 audio_file = ydl_audio.prepare_filename(info_audio).rsplit(".", 1)[0] + ".mp3"
                 try:
                     with open(audio_file, "rb") as f:
-                        await update.message.reply_audio(audio=f, caption=f"🎵 تم استخراج الصوت من: {title}")
+                        await message.reply_audio(audio=f, caption=f"🎵 تم استخراج الصوت من: {title}")
                 finally:
                     if os.path.exists(audio_file):
                         os.remove(audio_file)
@@ -90,14 +95,22 @@ async def download_and_send(update: Update, url: str, mode: str, limit: int):
                 filename = ydl.prepare_filename(info_downloaded)
 
             try:
-                # تحقق من الحجم الفعلي
                 if limit and os.path.getsize(filename) > limit:
-                    await status.edit_text("⚠️ الفيديو أكبر من الحد المسموح به، سيتم إرسال الصوت فقط.")
-                    os.remove(filename)
-                    return await download_and_send(update, url, "audio", limit)
-
-                with open(filename, "rb") as f:
-                    await update.message.reply_video(video=f, caption=f"🎬 تم التحميل: {title}")
+                    await status.edit_text("⚠️ الفيديو أكبر من الحد المسموح به، سيتم ضغطه...")
+                    compressed_file = filename.rsplit(".",1)[0] + "_compressed.mp4"
+                    compress_video(filename, compressed_file, limit)
+                    if os.path.getsize(compressed_file) <= limit:
+                        with open(compressed_file, "rb") as f:
+                            await message.reply_video(video=f, caption=f"🎬 تم تحميل الفيديو بعد الضغط: {title}")
+                        os.remove(compressed_file)
+                    else:
+                        os.remove(filename)
+                        await status.edit_text("⚠️ لا يمكن ضغط الفيديو بما يكفي، سيتم إرسال الصوت فقط.")
+                        await download_and_send(message, url, "audio", limit)
+                        return
+                else:
+                    with open(filename, "rb") as f:
+                        await message.reply_video(video=f, caption=f"🎬 تم التحميل: {title}")
             finally:
                 if os.path.exists(filename):
                     os.remove(filename)
@@ -113,28 +126,37 @@ async def handle_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if "youtube.com/shorts/" in url:
         url = url.replace("/shorts/", "/watch?v=")
 
-    user_id = update.message.from_user.id
-    limit = PREMIUM_LIMIT if user_id in PREMIUM_USERS else FREE_LIMIT
-    await download_and_send(update, url, "video", limit)
+    context.user_data["url"] = url
 
-async def video_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not context.args:
-        await update.message.reply_text("❌ يرجى إدخال الرابط بعد الأمر /video")
-        return
-    url = context.args[0]
-    user_id = update.message.from_user.id
-    limit = PREMIUM_LIMIT if user_id in PREMIUM_USERS else FREE_LIMIT
-    await download_and_send(update, url, "video", limit)
+    keyboard = [
+        [InlineKeyboardButton("🎬 فيديو", callback_data="video")],
+        [InlineKeyboardButton("🎵 صوت", callback_data="audio")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text("اختر ما تريد تحميله:", reply_markup=reply_markup)
 
-async def audio_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not context.args:
-        await update.message.reply_text("❌ يرجى إدخال الرابط بعد الأمر /audio")
-        return
-    url = context.args[0]
-    user_id = update.message.from_user.id
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    url = context.user_data.get("url")
+    user_id = query.from_user.id
     limit = PREMIUM_LIMIT if user_id in PREMIUM_USERS else FREE_LIMIT
-    await download_and_send(update, url, "audio", limit)
+
+    if query.data == "video":
+        await download_and_send(query.message, url, "video", limit)
+    elif query.data == "audio":
+        await download_and_send(query.message, url, "audio", limit)
 
 def main():
     app = Application.builder().token(TOKEN).build()
-    app.add_handler(CommandHandler("start", start ))
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("help", help_command))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_link))
+    app.add_handler(CallbackQueryHandler(button_handler))
+
+    print("🚀 البوت يعمل الآن!")
+    app.run_polling()
+
+if __name__ == "__main__":
+    main()
