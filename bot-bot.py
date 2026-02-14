@@ -2,10 +2,10 @@ import os
 import asyncio
 import yt_dlp
 import subprocess
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 
-TOKEN = "8373058261:AAG7_Fo2P_6kv6hHRp5xcl4QghDRpX5TryA"
+TOKEN = "8373058261:AAG7_Fo2P_6kv6hHRp5xcl4QghDRpX5TryA"  # ضع التوكن هنا
 DOWNLOAD_DIR = "downloads"
 FREE_LIMIT = 50 * 1024 * 1024   # 50MB للمجاني
 PREMIUM_LIMIT = 200 * 1024 * 1024  # 200MB للمدفوع
@@ -14,10 +14,11 @@ os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 PREMIUM_USERS = {123456789, 987654321}
 
 VIDEO_OPTIONS = {
-    'format': 'best[ext=mp4]/best',
+    'format': 'bestvideo+bestaudio/best',
     'outtmpl': f'{DOWNLOAD_DIR}/%(title)s.%(ext)s',
     'restrictfilenames': True,
     'noplaylist': True,
+    'merge_output_format': 'mp4'
 }
 
 AUDIO_OPTIONS = {
@@ -53,6 +54,13 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "⚡ سريع، بسيط، واحترافي!"
     )
 
+async def restart_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # مسح بيانات المستخدم
+    context.user_data.clear()
+    await update.message.reply_text("🔄 تمت إعادة التشغيل. ابدأ من جديد بإرسال رابط الفيديو.")
+    # إعادة عرض رسالة البداية
+    await start(update, context)
+
 def get_video_info(url):
     with yt_dlp.YoutubeDL({'quiet': True}) as ydl:
         return ydl.extract_info(url, download=False)
@@ -67,17 +75,21 @@ def compress_video(input_path, output_path, target_size):
     subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     return output_path
 
+async def show_loading(message):
+    msg = await message.reply_text("⏳ جاري التحميل...")
+    frames = ["⏳", "⌛"]
+    for i in range(6):
+        await asyncio.sleep(1)
+        await msg.edit_text(f"{frames[i % 2]} جاري التحميل...")
+    return msg
+
 async def download_and_send(message, url: str, mode: str, limit: int):
-    status = await message.reply_text("🔍 جاري التحليل...")
+    loading_msg = await show_loading(message)
 
     try:
         loop = asyncio.get_event_loop()
         info = await loop.run_in_executor(None, lambda: get_video_info(url))
-
         title = info.get("title", "بدون عنوان")
-        duration = info.get("duration", 0)
-
-        await status.edit_text(f"📌 {title}\n⏱ المدة: {duration} ثانية\n⬇️ جاري التحميل...")
 
         if mode == "audio":
             with yt_dlp.YoutubeDL(AUDIO_OPTIONS) as ydl_audio:
@@ -96,7 +108,6 @@ async def download_and_send(message, url: str, mode: str, limit: int):
 
             try:
                 if limit and os.path.getsize(filename) > limit:
-                    await status.edit_text("⚠️ الفيديو أكبر من الحد المسموح به، سيتم ضغطه...")
                     compressed_file = filename.rsplit(".",1)[0] + "_compressed.mp4"
                     compress_video(filename, compressed_file, limit)
                     if os.path.getsize(compressed_file) <= limit:
@@ -105,7 +116,7 @@ async def download_and_send(message, url: str, mode: str, limit: int):
                         os.remove(compressed_file)
                     else:
                         os.remove(filename)
-                        await status.edit_text("⚠️ لا يمكن ضغط الفيديو بما يكفي، سيتم إرسال الصوت فقط.")
+                        await message.reply_text("⚠️ لا يمكن ضغط الفيديو بما يكفي، سيتم إرسال الصوت فقط.")
                         await download_and_send(message, url, "audio", limit)
                         return
                 else:
@@ -115,11 +126,11 @@ async def download_and_send(message, url: str, mode: str, limit: int):
                 if os.path.exists(filename):
                     os.remove(filename)
 
-        await status.delete()
+        await loading_msg.delete()
 
     except Exception as e:
         print(f"Error: {e}")
-        await status.edit_text("❌ فشل التحميل، تحقق من الرابط أو أعد المحاولة.")
+        await loading_msg.edit_text("❌ فشل التحميل، تحقق من الرابط أو أعد المحاولة.")
 
 async def handle_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     url = update.message.text.strip()
@@ -139,6 +150,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
+    # حذف رسالة الاختيار مباشرة بعد الضغط
+    await query.message.delete()
+
     url = context.user_data.get("url")
     user_id = query.from_user.id
     limit = PREMIUM_LIMIT if user_id in PREMIUM_USERS else FREE_LIMIT
@@ -148,12 +162,24 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif query.data == "audio":
         await download_and_send(query.message, url, "audio", limit)
 
+async def set_commands(app):
+    commands = [
+        BotCommand("language", "🌐 اللغة"),
+        BotCommand("help", "📖 المساعدة"),
+        BotCommand("restart", "🔄 إعادة التشغيل")
+    ]
+    await app.bot.set_my_commands(commands)
+
 def main():
     app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
+    app.add_handler(CommandHandler("restart", restart_command))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_link))
     app.add_handler(CallbackQueryHandler(button_handler))
+
+    # إعداد القائمة الجانبية
+    app.post_init(set_commands)
 
     print("🚀 البوت يعمل الآن!")
     app.run_polling()
