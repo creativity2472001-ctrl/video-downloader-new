@@ -1,7 +1,6 @@
 import os
 import asyncio
 import yt_dlp
-import subprocess
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
 from telegram.ext import (
     Application,
@@ -12,142 +11,133 @@ from telegram.ext import (
     CallbackQueryHandler
 )
 
-# ====== ضع التوكن هنا ======
 TOKEN = "8373058261:AAG7_Fo2P_6kv6hHRp5xcl4QghDRpX5TryA"
 
 DOWNLOAD_DIR = "downloads"
-FREE_LIMIT = 50 * 1024 * 1024      # 50MB
-PREMIUM_LIMIT = 200 * 1024 * 1024  # 200MB
+FREE_LIMIT = 50 * 1024 * 1024
+PREMIUM_LIMIT = 200 * 1024 * 1024
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
 PREMIUM_USERS = {123456789}
 
-# ====== خيارات تحميل الفيديو (سريع جدًا) ======
-VIDEO_OPTIONS = {
-    'format': 'bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]',
+# ⚡ صيغة سريعة جدًا (بدون دمج ثقيل إن وجد mp4 جاهز)
+VIDEO_OPTIONS_BASE = {
+    'format': '18/22/best',
     'outtmpl': f'{DOWNLOAD_DIR}/%(title)s.%(ext)s',
     'noplaylist': True,
-    'merge_output_format': 'mp4',
-    'concurrent_fragment_downloads': 5,  # تحميل أجزاء الفيديو متوازي
+    'concurrent_fragment_downloads': 8,
     'quiet': True
 }
 
-# ====== خيارات تحميل الصوت ======
 AUDIO_OPTIONS = {
-    'format': 'bestaudio/best',
+    'format': 'bestaudio',
     'outtmpl': f'{DOWNLOAD_DIR}/%(title)s.%(ext)s',
     'postprocessors': [{
         'key': 'FFmpegExtractAudio',
         'preferredcodec': 'mp3',
         'preferredquality': '192',
     }],
-    'restrictfilenames': True,
-    'noplaylist': True,
     'quiet': True
 }
 
-# ================= أوامر البوت =================
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.message.from_user.id
-    msg = "💎 أنت مشترك مدفوع — الحد 200MB" if user_id in PREMIUM_USERS else "📌 نسخة مجانية — الحد 50MB"
-    await update.message.reply_text(
-        f"{msg}\n\n🎬 أرسل رابط من YouTube / TikTok / Instagram / Facebook\nسيظهر لك خيار تحميل فيديو أو صوت."
-    )
+# ================= Progress Hook =================
 
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def progress_hook_factory(message, loop):
+    last_percent = {"value": 0}
+
+    def hook(d):
+        if d['status'] == 'downloading':
+            percent_str = d.get('_percent_str', '0%').strip()
+            try:
+                percent = float(percent_str.replace('%', ''))
+                if percent - last_percent["value"] >= 5:
+                    last_percent["value"] = percent
+                    asyncio.run_coroutine_threadsafe(
+                        message.edit_text(f"⏳ جاري التحميل... {percent:.0f}%"),
+                        loop
+                    )
+            except:
+                pass
+
+    return hook
+
+# ================= Commands =================
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "📖 طريقة الاستخدام:\n"
-        "1️⃣ أرسل الرابط\n"
-        "2️⃣ اختر فيديو أو صوت\n"
-        "3️⃣ إذا كان كبير سيتم ضغطه تلقائيًا\n\n"
-        "⚡ سريع — بدون زوم — احترافي"
+        "🚀 أرسل رابط فيديو\nاختر فيديو أو صوت\n⚡ نسخة فائقة السرعة"
     )
 
 async def restart_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
-    await update.message.reply_text("🔄 تمت إعادة التشغيل. أرسل رابط جديد.")
+    await update.message.reply_text("🔄 أرسل رابط جديد.")
 
-# ================= أدوات مساعدة =================
-def get_video_info(url):
-    with yt_dlp.YoutubeDL({'quiet': True}) as ydl:
-        return ydl.extract_info(url, download=False)
+# ================= Download Core =================
 
-def compress_video(input_path, output_path):
-    command = [
-        "ffmpeg", "-y", "-i", input_path,
-        "-vcodec", "libx264", "-crf", "28", "-preset", "fast",
-        "-acodec", "aac", "-b:a", "128k",
-        output_path
-    ]
-    subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    return output_path
-
-# ================= التحميل والإرسال =================
-async def download_and_send(chat, url: str, mode: str, limit: int):
-    loading_msg = await chat.send_message("⏳ جاري التحميل...")  # تبقى ثابتة طوال مدة التحميل
+async def download_and_send(chat, url, mode, limit):
+    loading_msg = await chat.send_message("⏳ جاري التحميل... 0%")
+    loop = asyncio.get_event_loop()
 
     try:
-        loop = asyncio.get_event_loop()
-        info = await loop.run_in_executor(None, lambda: get_video_info(url))
-        title = info.get("title", "بدون عنوان")
-
-        if mode == "audio":
-            with yt_dlp.YoutubeDL(AUDIO_OPTIONS) as ydl_audio:
-                info_audio = await loop.run_in_executor(None, lambda: ydl_audio.extract_info(url, download=True))
-                audio_file = ydl_audio.prepare_filename(info_audio).rsplit(".", 1)[0] + ".mp3"
-
-            # إرسال الصوت أولاً ثم حذف الرسالة
-            with open(audio_file, "rb") as f:
-                await chat.send_audio(audio=f, caption=f"🎵 تم استخراج الصوت:\n{title}")
-            await loading_msg.delete()
-            os.remove(audio_file)
-
+        if mode == "video":
+            options = VIDEO_OPTIONS_BASE.copy()
         else:
-            with yt_dlp.YoutubeDL(VIDEO_OPTIONS) as ydl:
-                info_downloaded = await loop.run_in_executor(None, lambda: ydl.extract_info(url, download=True))
-                filename = ydl.prepare_filename(info_downloaded)
+            options = AUDIO_OPTIONS.copy()
 
-            if os.path.getsize(filename) > limit:
-                compressed_file = filename.rsplit(".", 1)[0] + "_compressed.mp4"
-                compress_video(filename, compressed_file)
+        options['progress_hooks'] = [progress_hook_factory(loading_msg, loop)]
 
-                if os.path.getsize(compressed_file) <= limit:
-                    with open(compressed_file, "rb") as f:
-                        await chat.send_video(video=f, caption=f"🎬 تم تحميل الفيديو بعد الضغط:\n{title}", supports_streaming=True)
-                    await loading_msg.delete()
-                    os.remove(compressed_file)
-                else:
-                    os.remove(filename)
-                    await loading_msg.delete()
-                    await chat.send_message("⚠️ الفيديو كبير جدًا — سيتم إرسال الصوت فقط.")
-                    await download_and_send(chat, url, "audio", limit)
-                    return
-            else:
-                with open(filename, "rb") as f:
-                    await chat.send_video(video=f, caption=f"🎬 تم التحميل:\n{title}", supports_streaming=True)
-                await loading_msg.delete()
+        def download():
+            with yt_dlp.YoutubeDL(options) as ydl:
+                info = ydl.extract_info(url, download=True)
+                return ydl.prepare_filename(info), info.get("title", "بدون عنوان")
 
+        filename, title = await loop.run_in_executor(None, download)
+
+        # لو صوت
+        if mode == "audio":
+            filename = filename.rsplit(".", 1)[0] + ".mp3"
+            with open(filename, "rb") as f:
+                await chat.send_audio(f, caption=f"🎵 {title}")
+            await loading_msg.delete()
             os.remove(filename)
+            return
+
+        # لو فيديو
+        if os.path.getsize(filename) > limit:
+            await loading_msg.edit_text("⚠️ الحجم كبير — سيتم إرسال الصوت فقط")
+            await download_and_send(chat, url, "audio", limit)
+            return
+
+        with open(filename, "rb") as f:
+            await chat.send_video(
+                f,
+                caption=f"🎬 {title}",
+                supports_streaming=True
+            )
+
+        await loading_msg.delete()
+        os.remove(filename)
 
     except Exception as e:
         print(e)
-        await loading_msg.edit_text("❌ فشل التحميل — تأكد من الرابط.")
+        await loading_msg.edit_text("❌ فشل التحميل")
 
-# ================= استقبال الرابط =================
+# ================= Handlers =================
+
 async def handle_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     url = update.message.text.strip()
-    if "youtube.com/shorts/" in url:
-        url = url.replace("/shorts/", "/watch?v=")
     context.user_data["url"] = url
 
     keyboard = [
-        [InlineKeyboardButton("🎬 تحميل فيديو", callback_data="video")],
-        [InlineKeyboardButton("🎵 تحميل صوت", callback_data="audio")],
-        [InlineKeyboardButton("🔄 إعادة التشغيل", callback_data="restart")]
+        [InlineKeyboardButton("🎬 فيديو سريع", callback_data="video")],
+        [InlineKeyboardButton("🎵 صوت فقط", callback_data="audio")]
     ]
-    await update.message.reply_text("اختر نوع التحميل:", reply_markup=InlineKeyboardMarkup(keyboard))
 
-# ================= أزرار =================
+    await update.message.reply_text(
+        "اختر نوع التحميل:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -157,31 +147,19 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = query.from_user.id
     limit = PREMIUM_LIMIT if user_id in PREMIUM_USERS else FREE_LIMIT
 
-    if query.data == "video":
-        await download_and_send(update.effective_chat, url, "video", limit)
-    elif query.data == "audio":
-        await download_and_send(update.effective_chat, url, "audio", limit)
-    elif query.data == "restart":
-        context.user_data.clear()
-        await update.effective_chat.send_message("🔄 أرسل رابط جديد.")
+    await download_and_send(update.effective_chat, url, query.data, limit)
 
-# ================= تشغيل البوت =================
-async def set_commands(app):
-    commands = [
-        BotCommand("help", "📖 المساعدة"),
-        BotCommand("restart", "🔄 إعادة التشغيل")
-    ]
-    await app.bot.set_my_commands(commands)
+# ================= Main =================
 
 def main():
-    app = Application.builder().token(TOKEN).post_init(set_commands).build()
+    app = Application.builder().token(TOKEN).build()
+
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("restart", restart_command))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_link))
     app.add_handler(CallbackQueryHandler(button_handler))
 
-    print("🚀 البوت يعمل الآن...")
+    print("🚀 البوت يعمل بسرعة خارقة...")
     app.run_polling()
 
 if __name__ == "__main__":
