@@ -14,8 +14,6 @@ from telegram.ext import (
 TOKEN = "8373058261:AAG7_Fo2P_6kv6hHRp5xcl4QghDRpX5TryA"  # ضع توكن البوت هنا
 
 DOWNLOAD_DIR = "downloads"
-FREE_LIMIT = 50 * 1024 * 1024
-PREMIUM_LIMIT = 200 * 1024 * 1024
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
 PREMIUM_USERS = {123456789}
@@ -39,12 +37,10 @@ AUDIO_OPTIONS = {
     'quiet': True
 }
 
-user_language = {}  # لتخزين لغة المستخدم
-
-# ================= دالة ترجمة النصوص =================
+user_language = {}
 
 def t(user_id, key):
-    lang = user_language.get(user_id, "ar")  # الافتراضي عربي
+    lang = user_language.get(user_id, "ar")
     texts = {
         "choose_type": {"ar": "اختر نوع التحميل:", "en": "Choose download type:"},
         "video": {"ar": "🎬 فيديو سريع", "en": "🎬 Video"},
@@ -60,36 +56,22 @@ def t(user_id, key):
     }
     return texts.get(key, {}).get(lang, "")
 
-# ================= Commands =================
-
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # زر القائمة الصغيرة
-    keyboard = [
-        [KeyboardButton("/language"), KeyboardButton("/help"), KeyboardButton("/restart")]
-    ]
+    keyboard = [[KeyboardButton("/language"), KeyboardButton("/help"), KeyboardButton("/restart")]]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-
     await update.message.reply_text(
         "🚀 أرسل رابط فيديو\nاختر فيديو أو صوت\n⚡ نسخة فائقة السرعة",
         reply_markup=reply_markup
     )
 
-# ================= Download Core =================
-
-async def download_and_send(chat, url, mode, limit, user_id):
+async def download_and_send(chat, url, mode, user_id):
     loading_msg = await chat.send_message(t(user_id, "loading"))
-
     try:
-        if mode == "video":
-            options = VIDEO_OPTIONS_BASE.copy()
-        else:
-            options = AUDIO_OPTIONS.copy()
-
+        options = VIDEO_OPTIONS_BASE.copy() if mode == "video" else AUDIO_OPTIONS.copy()
         def download():
             with yt_dlp.YoutubeDL(options) as ydl:
                 info = ydl.extract_info(url, download=True)
                 return ydl.prepare_filename(info), info.get("title", "بدون عنوان")
-
         loop = asyncio.get_event_loop()
         filename, title = await loop.run_in_executor(None, download)
 
@@ -98,23 +80,13 @@ async def download_and_send(chat, url, mode, limit, user_id):
             with open(filename, "rb") as f:
                 await chat.send_audio(f, caption=f"🎵 {title}")
             await loading_msg.delete()
-            os.remove(filename)
             return
 
-        if os.path.getsize(filename) > limit:
-            await loading_msg.edit_text("⚠️ الحجم كبير — سيتم إرسال الصوت فقط")
-            await download_and_send(chat, url, "audio", limit, user_id)
-            return
-
+        # 🔹 إرسال الفيديو كملف ليتم حفظه تلقائياً في الاستوديو
         with open(filename, "rb") as f:
-            await chat.send_video(
-                f,
-                caption=f"🎬 {title}",
-                supports_streaming=True
-            )
+            await chat.send_document(f, caption=f"🎬 {title}")
 
         await loading_msg.delete()
-        os.remove(filename)
 
     except Exception as e:
         print(e)
@@ -123,18 +95,14 @@ async def download_and_send(chat, url, mode, limit, user_id):
         except:
             pass
 
-# ================= Handlers =================
-
 async def handle_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     url = update.message.text.strip()
     context.user_data["url"] = url
     user_id = update.message.from_user.id
-
     keyboard = [
         [InlineKeyboardButton(t(user_id, "video"), callback_data="video")],
         [InlineKeyboardButton(t(user_id, "audio"), callback_data="audio")]
     ]
-
     await update.message.reply_text(
         t(user_id, "choose_type"),
         reply_markup=InlineKeyboardMarkup(keyboard)
@@ -146,9 +114,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = query.data
     user_id = query.from_user.id
     url = context.user_data.get("url")
-    limit = PREMIUM_LIMIT if user_id in PREMIUM_USERS else FREE_LIMIT
 
-    # ===== LANGUAGE MENU =====
     if data == "language":
         keyboard = [
             [InlineKeyboardButton("🇸🇦 عربي", callback_data="lang_ar"),
@@ -170,24 +136,19 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(t(user_id, "lang_set_en"))
         return
 
-    # ===== HELP =====
     elif data == "help":
         await query.edit_message_text(t(user_id, "help_text"))
         return
 
-    # ===== RESTART =====
     elif data == "restart":
         context.user_data.clear()
         await query.edit_message_text(t(user_id, "restart_msg"))
         return
 
-    # ===== VIDEO / AUDIO =====
     elif data in ["video", "audio"]:
         await query.message.delete()
-        await download_and_send(update.effective_chat, url, data, limit, user_id)
+        await download_and_send(update.effective_chat, url, data, user_id)
         return
-
-# ================= COMMAND HANDLERS FOR REPLY KEYBOARD =================
 
 async def language_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
@@ -208,18 +169,14 @@ async def restart_command_text(update: Update, context: ContextTypes.DEFAULT_TYP
     context.user_data.clear()
     await update.message.reply_text(t(user_id, "restart_msg"))
 
-# ================= Main =================
-
 def main():
     app = Application.builder().token(TOKEN).build()
-
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("language", language_command))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("restart", restart_command_text))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_link))
     app.add_handler(CallbackQueryHandler(button_handler))
-
     print("🚀 البوت يعمل بسرعة خارقة...")
     app.run_polling()
 
