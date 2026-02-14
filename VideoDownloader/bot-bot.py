@@ -1,7 +1,7 @@
 import os
 import asyncio
 import yt_dlp
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -11,7 +11,7 @@ from telegram.ext import (
     CallbackQueryHandler
 )
 
-TOKEN = "8373058261:AAG7_Fo2P_6kv6hHRp5xcl4QghDRpX5TryA"  # ضع التوكن هنا
+TOKEN = "8373058261:AAG7_Fo2P_6kv6hHRp5xcl4QghDRpX5TryA"  # ضع توكن البوت هنا
 
 DOWNLOAD_DIR = "downloads"
 FREE_LIMIT = 50 * 1024 * 1024
@@ -44,14 +44,15 @@ user_language = {}  # لتخزين لغة المستخدم
 # ================= Commands =================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # ✅ زر القائمة الصغيرة (ReplyKeyboard) يظهر من البداية
     keyboard = [
-        [InlineKeyboardButton("🌐 Language", callback_data="language")],
-        [InlineKeyboardButton("📖 Help", callback_data="help")],
-        [InlineKeyboardButton("🔄 Restart", callback_data="restart")]
+        [KeyboardButton("/language"), KeyboardButton("/help"), KeyboardButton("/restart")]
     ]
+    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+
     await update.message.reply_text(
         "🚀 أرسل رابط فيديو\nاختر فيديو أو صوت\n⚡ نسخة فائقة السرعة",
-        reply_markup=InlineKeyboardMarkup(keyboard)
+        reply_markup=reply_markup
     )
 
 # ================= Download Core =================
@@ -130,10 +131,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ===== LANGUAGE MENU =====
     if data == "language":
         keyboard = [
-            [
-                InlineKeyboardButton("🇸🇦 عربي", callback_data="lang_ar"),
-                InlineKeyboardButton("🇺🇸 English", callback_data="lang_en")
-            ]
+            [InlineKeyboardButton("🇸🇦 عربي", callback_data="lang_ar"),
+             InlineKeyboardButton("🇺🇸 English", callback_data="lang_en")]
         ]
         await query.edit_message_text(
             "اختر اللغة / Choose language:",
@@ -156,10 +155,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         help_text = """📖 تعليمات التحميل:
 
 1. افتح Instagram/TikTok/Pinterest/Likee/YouTube
-2. اختر الفيديو الذي تريد
-3. اضغط على ↪️ أو الثلاث نقاط
-4. انسخ الرابط
-5. أرسله للبوت لتحصل على الفيديو"""
+2. انسخ رابط الفيديو الذي تريد
+3. أرسله للبوت لتحصل على الفيديو أو الصوت مباشرة"""
         await query.edit_message_text(help_text)
         return
 
@@ -175,13 +172,39 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await download_and_send(update.effective_chat, url, data, limit)
         return
 
+# ================= COMMAND HANDLERS FOR REPLY KEYBOARD =================
+
+async def language_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = [
+        [InlineKeyboardButton("🇸🇦 عربي", callback_data="lang_ar"),
+         InlineKeyboardButton("🇺🇸 English", callback_data="lang_en")]
+    ]
+    await update.message.reply_text(
+        "اختر اللغة / Choose language:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    help_text = """📖 تعليمات التحميل:
+
+1. افتح Instagram/TikTok/Pinterest/Likee/YouTube
+2. انسخ رابط الفيديو الذي تريد
+3. أرسله للبوت لتحصل على الفيديو أو الصوت مباشرة"""
+    await update.message.reply_text(help_text)
+
+async def restart_command_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data.clear()
+    await update.message.reply_text("🔄 البوت أعيد تشغيله، أرسل رابط جديد.")
+
 # ================= Main =================
 
 def main():
     app = Application.builder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("restart", lambda u, c: restart_command(u, c)))
+    app.add_handler(CommandHandler("language", language_command))
+    app.add_handler(CommandHandler("help", help_command))
+    app.add_handler(CommandHandler("restart", restart_command_text))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_link))
     app.add_handler(CallbackQueryHandler(button_handler))
 
