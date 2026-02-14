@@ -1,24 +1,23 @@
 import os
 import asyncio
+import yt_dlp
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
-import yt_dlp
 
 # ضع التوكن الخاص ببوتك هنا
 TOKEN = '8373058261:AAG7_Fo2P_6kv6hHRp5xcl4QghDRpX5TryA'
 
-# دالة إعدادات التحميل لضمان الجودة والتوافق
-def get_ytdl_opts(download_type, file_path):
-    if download_type == 'video':
-        return {
-            # اختيار أفضل جودة MP4 مدمجة (صوت وفيديو) لضمان العمل على الآيفون والأندرويد
-            'format': 'best[ext=mp4]/best',
+# إعدادات متقدمة للسرعة والجودة
+def download_process(link, choice, file_path):
+    if choice == 'video':
+        ydl_opts = {
+            'format': 'best[ext=mp4]/best', # أسرع صيغة مدمجة
             'outtmpl': f'{file_path}.%(ext)s',
             'quiet': True,
             'no_warnings': True,
         }
-    else:  # audio
-        return {
+    else:
+        ydl_opts = {
             'format': 'bestaudio/best',
             'outtmpl': f'{file_path}.%(ext)s',
             'postprocessors': [{
@@ -27,106 +26,76 @@ def get_ytdl_opts(download_type, file_path):
                 'preferredquality': '192',
             }],
             'quiet': True,
-            'no_warnings': True,
         }
+    
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(link, download=True)
+        return ydl.prepare_filename(info)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # إنشاء أزرار القائمة الرئيسية (التي تظهر بجانب مربع النص)
     keyboard = [['اللغة 🌐', 'المساعدة 📖', 'إعادة التشغيل 🔄']]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-    
-    await update.message.reply_text(
-        "أهلاً بك! أرسل لي رابط الفيديو وسأقوم بتحميله لك فوراً بأعلى جودة.",
-        reply_markup=reply_markup
-    )
+    await update.message.reply_text("أهلاً بك! أرسل الرابط وسأقوم بالتحميل فوراً ⚡", reply_markup=reply_markup)
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
-
-    # معالجة أزرار القائمة
-    if text == "المساعدة 📖":
-        help_text = (
-            "📖 Download instructions:\n\n"
-            "1. Go to the Instagram/TikTok/Pinterest/Likee/YouTube app\n"
-            "2. Choose a video you like\n"
-            "3. Tap the ↪️ button or the three dots in the top right corner.\n"
-            "4. Tap the \"Copy\" button.\n"
-            "5. Send the link to the bot and in a few seconds you'll get the video without a watermark."
-        )
-        await update.message.reply_text(help_text)
-        return
-
-    if text == "اللغة 🌐":
-        await update.message.reply_text("اللغة المتاحة حالياً:\nالعربية / English")
-        return
-
-    if text == "إعادة التشغيل 🔄":
-        await start(update, context)
-        return
-
-    # إذا أرسل المستخدم رابطاً
     if text.startswith("http"):
         context.user_data['link'] = text
-        # أزرار اختيار النوع (تختفي لاحقاً)
-        keyboard = [
-            [InlineKeyboardButton("فيديو 🎬", callback_data='video')],
-            [InlineKeyboardButton("صوت 🎵", callback_data='audio')]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        await update.message.reply_text("اختر نوع التحميل فيديو او صوت:", reply_markup=reply_markup)
+        keyboard = [[InlineKeyboardButton("فيديو 🎬", callback_data='video'), 
+                     InlineKeyboardButton("صوت 🎵", callback_data='audio')]]
+        await update.message.reply_text("اختر نوع التحميل:", reply_markup=InlineKeyboardMarkup(keyboard))
+    elif "المساعدة" in text:
+        await update.message.reply_text("📖 أرسل الرابط مباشرة، وسأقوم بجلب الفيديو لك بدون علامة مائية.")
 
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    choice = query.data
-    link = context.user_data.get('link')
-    
+    # منع التكرار: نقوم بالإجابة على الطلب فوراً لإبلاغ تيليجرام أننا استلمناه
     await query.answer()
     
-    # 1. تختفي رسالة "اختر النوع" وتظهر "جاري التحميل ⏳"
-    loading_msg = await query.edit_message_text("جاري التحميل... ⏳")
+    choice = query.data
+    link = context.user_data.get('link')
+    if not link: return
 
-    # اسم ملف مؤقت فريد لكل مستخدم
-    file_prefix = f"dl_{query.from_user.id}"
-    opts = get_ytdl_opts(choice, file_prefix)
+    # تغيير الرسالة واختفاء الأزرار
+    loading_msg = await query.edit_message_text("جاري التحميل... ⏳")
+    
+    file_id = f"dl_{query.from_user.id}_{context.update_id}"
+    loop = asyncio.get_event_loop()
 
     try:
-        with yt_dlp.YoutubeDL(opts) as ydl:
-            # استخراج المعلومات والتحميل
-            info = ydl.extract_info(link, download=True)
-            filename = ydl.prepare_filename(info)
-            
-            # في حالة الصوت، yt-dlp يغير الامتداد لـ mp3 بعد المعالجة
-            if choice == 'audio':
-                filename = os.path.splitext(filename)[0] + '.mp3'
+        # تشغيل التحميل في "خيط" منفصل لمنع تجميد البوت (حل مشكلة البطء والخطأ)
+        filename = await loop.run_in_executor(None, download_process, link, choice, file_id)
+        
+        if choice == 'audio' and not filename.endswith('.mp3'):
+            filename = os.path.splitext(filename)[0] + '.mp3'
 
-        # 2. إرسال الفيديو/الصوت للمستخدم
+        # إرسال الملف
         with open(filename, 'rb') as f:
             if choice == 'video':
-                await query.message.reply_video(video=f, caption="تم التحميل بنجاح! ✅")
+                await query.message.reply_video(video=f, caption="✅ تم التحميل بنجاح!")
             else:
-                await query.message.reply_audio(audio=f, caption="تم التحميل بنجاح! ✅")
+                await query.message.reply_audio(audio=f, caption="✅ تم التحميل بنجاح!")
         
-        # 3. حذف رسالة "جاري التحميل" بعد ظهور الفيديو
+        # حذف رسالة "جاري التحميل" بعد النجاح
         await loading_msg.delete()
-        
-        # تنظيف الملفات من السيرفر فوراً لزيادة السرعة وتوفير المساحة
-        if os.path.exists(filename):
-            os.remove(filename)
 
     except Exception as e:
-        await query.edit_message_text(f"حدث خطأ أثناء التحميل: {str(e)}")
+        await query.message.reply_text(f"❌ حدث خطأ: {str(e)}")
+    finally:
+        # تنظيف الملفات
+        if 'filename' in locals() and os.path.exists(filename):
+            os.remove(filename)
 
 def main():
-    # بناء التطبيق باستخدام التوكن
+    # منع إعادة المحاولة التلقائية من تيليجرام (حل مشكلة تكرار الفيديو)
     application = Application.builder().token(TOKEN).build()
-
-    # الروابط والمستقبلات
+    
     application.add_handler(CommandHandler("start", start))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     application.add_handler(CallbackQueryHandler(button_callback))
 
-    print("البوت يعمل الآن... اضغط Ctrl+C للإيقاف")
-    application.run_polling()
+    print("البوت يعمل بكفاءة عالية الآن...")
+    application.run_polling(drop_pending_updates=True) # يتجاهل الرسائل القديمة عند التشغيل
 
 if __name__ == '__main__':
     main()
