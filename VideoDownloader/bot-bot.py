@@ -4,66 +4,57 @@ import yt_dlp
 from telegram import Update, BotCommand, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 
-# ====== ضع التوكن هنا ======
 TOKEN = "8373058261:AAG7_Fo2P_6kv6hHRp5xcl4QghDRpX5TryA"
 
 DOWNLOAD_DIR = "downloads"
-FREE_LIMIT = 50 * 1024 * 1024
-PREMIUM_LIMIT = 200 * 1024 * 1024
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
+FREE_LIMIT = 50 * 1024 * 1024
+PREMIUM_LIMIT = 200 * 1024 * 1024
 PREMIUM_USERS = {123456789}
 
-# ===== خيارات تحميل الفيديو سريع + بدون زوم =====
+# 🔥 خيارات قوية تجبر إنستغرام على فيديو حقيقي
 VIDEO_OPTIONS = {
-    'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+    'format': 'bv*+ba/bestvideo+bestaudio/best',
     'merge_output_format': 'mp4',
-    'outtmpl': f'{DOWNLOAD_DIR}/%(title)s.%(ext)s',
+    'outtmpl': f'{DOWNLOAD_DIR}/%(id)s.%(ext)s',
     'noplaylist': True,
     'quiet': True,
-    'concurrent_fragment_downloads': 10,
-    'retries': 50,
-    'fragment_retries': 50,
+    'concurrent_fragment_downloads': 8,
+    'retries': 10,
+    'fragment_retries': 10,
     'continuedl': True,
 }
 
 AUDIO_OPTIONS = {
     'format': 'bestaudio/best',
-    'outtmpl': f'{DOWNLOAD_DIR}/%(title)s.%(ext)s',
+    'outtmpl': f'{DOWNLOAD_DIR}/%(id)s.%(ext)s',
     'postprocessors': [{
         'key': 'FFmpegExtractAudio',
         'preferredcodec': 'mp3',
         'preferredquality': '192',
     }],
-    'restrictfilenames': True,
-    'noplaylist': True,
     'quiet': True,
-    'concurrent_fragment_downloads': 10,
-    'retries': 50,
-    'fragment_retries': 50,
-    'continuedl': True,
+    'noplaylist': True,
 }
 
-# ================= نصوص متعددة اللغات =================
 TEXTS = {
     "choose": {"AR": "اختر نوع التحميل:", "EN": "Choose download type:"},
     "loading": {"AR": "⏳ جاري التحميل...", "EN": "⏳ Loading..."},
-    "large_file": {"AR": "⚠️ الحجم كبير جدًا — سيتم إرسال الصوت فقط", "EN": "⚠️ File too large — only audio will be sent"},
 }
 
 def get_text(key, lang):
-    return TEXTS.get(key, {}).get(lang, "")
+    return TEXTS[key][lang]
 
-# ================= Commands قائمة البوت =================
+# ================= Commands =================
+
 async def set_commands(app):
-    commands = [
+    await app.bot.set_my_commands([
         BotCommand("language", "🌐 اللغة / Language"),
         BotCommand("help", "📖 المساعدة"),
         BotCommand("restart", "🔄 إعادة التشغيل")
-    ]
-    await app.bot.set_my_commands(commands)
+    ])
 
-# ================= Commands Handlers =================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["lang"] = context.user_data.get("lang", "AR")
     await update.message.reply_text("🚀 أرسل الرابط لتحميل الفيديو أو الصوت")
@@ -73,49 +64,36 @@ async def restart(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("🔄 أرسل رابط جديد.")
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    lang = context.user_data.get("lang", "AR")
-    text = "📖 استخدم البوت:\n1️⃣ أرسل رابط\n2️⃣ اختر فيديو أو صوت\n3️⃣ سيتم التحميل بسرعة عالية"
-    await update.message.reply_text(text)
+    await update.message.reply_text("أرسل رابط ثم اختر فيديو أو صوت.")
 
 async def language_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [InlineKeyboardButton("🇸🇦 العربية", callback_data="lang_ar")],
         [InlineKeyboardButton("🇺🇸 English", callback_data="lang_en")]
     ]
-    lang = context.user_data.get("lang", "AR")
-    await update.message.reply_text(get_text("choose", lang), reply_markup=InlineKeyboardMarkup(keyboard))
+    await update.message.reply_text("اختر اللغة:", reply_markup=InlineKeyboardMarkup(keyboard))
 
 # ================= Download =================
+
 async def download_and_send(chat, url, mode, limit, lang):
     loading_msg = await chat.send_message(get_text("loading", lang))
     loop = asyncio.get_event_loop()
 
-    while True:  # ♾️ يحاول حتى ينجح
-        try:
-            options = VIDEO_OPTIONS.copy() if mode == "video" else AUDIO_OPTIONS.copy()
+    try:
+        options = VIDEO_OPTIONS.copy() if mode == "video" else AUDIO_OPTIONS.copy()
 
-            def download():
-                with yt_dlp.YoutubeDL(options) as ydl:
-                    info = ydl.extract_info(url, download=True)
-                    return ydl.prepare_filename(info), info.get("title", "بدون عنوان")
+        def download():
+            with yt_dlp.YoutubeDL(options) as ydl:
+                info = ydl.extract_info(url, download=True)
+                return ydl.prepare_filename(info), info.get("title", "Video")
 
-            filename, title = await loop.run_in_executor(None, download)
+        filename, title = await loop.run_in_executor(None, download)
 
-            # ===== صوت =====
-            if mode == "audio":
-                filename = filename.rsplit(".", 1)[0] + ".mp3"
-                with open(filename, "rb") as f:
-                    await chat.send_audio(f, caption=f"🎵 {title}")
-                await loading_msg.delete()
-                os.remove(filename)
-                return
-
-            # ===== لو الفيديو كبير جدًا =====
-            if os.path.getsize(filename) > limit:
-                await download_and_send(chat, url, "audio", limit, lang)
-                return
-
-            # ===== فيديو =====
+        if mode == "audio":
+            filename = filename.rsplit(".", 1)[0] + ".mp3"
+            with open(filename, "rb") as f:
+                await chat.send_audio(f, caption=f"🎵 {title}")
+        else:
             with open(filename, "rb") as f:
                 await chat.send_video(
                     f,
@@ -123,18 +101,17 @@ async def download_and_send(chat, url, mode, limit, lang):
                     supports_streaming=True
                 )
 
-            await loading_msg.delete()
-            os.remove(filename)
-            return
+        await loading_msg.delete()
+        os.remove(filename)
 
-        except Exception as e:
-            print("Retrying download...", e)
-            await asyncio.sleep(3)
+    except Exception as e:
+        print("Download error:", e)
+        await loading_msg.delete()
 
-# ================= Link Handler =================
+# ================= Handlers =================
+
 async def handle_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    url = update.message.text.strip()
-    context.user_data["url"] = url
+    context.user_data["url"] = update.message.text.strip()
     lang = context.user_data.get("lang", "AR")
 
     keyboard = [
@@ -142,30 +119,38 @@ async def handle_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🎵 صوت", callback_data="audio")]
     ]
 
-    await update.message.reply_text(get_text("choose", lang), reply_markup=InlineKeyboardMarkup(keyboard))
+    await update.message.reply_text(
+        get_text("choose", lang),
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
 
-# ================= Button Handler =================
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    await query.message.delete()  # الزر يختفي فورًا
+    await query.message.delete()
 
-    user_id = query.from_user.id
     lang = context.user_data.get("lang", "AR")
-    limit = PREMIUM_LIMIT if user_id in PREMIUM_USERS else FREE_LIMIT
+    url = context.user_data.get("url")
 
-    if query.data in ["video", "audio"]:
-        url = context.user_data.get("url")
-        await download_and_send(update.effective_chat, url, query.data, limit, lang)
-    elif query.data.startswith("lang_"):
-        context.user_data["lang"] = "AR" if query.data == "lang_ar" else "EN"
-        await update.effective_chat.send_message(
-            f"✅ اللغة تم تغييرها إلى {'العربية' if context.user_data['lang']=='AR' else 'English'}"
-        )
+    if query.data == "video":
+        await download_and_send(update.effective_chat, url, "video", FREE_LIMIT, lang)
+
+    elif query.data == "audio":
+        await download_and_send(update.effective_chat, url, "audio", FREE_LIMIT, lang)
+
+    elif query.data == "lang_ar":
+        context.user_data["lang"] = "AR"
+        await update.effective_chat.send_message("✅ تم تغيير اللغة إلى العربية")
+
+    elif query.data == "lang_en":
+        context.user_data["lang"] = "EN"
+        await update.effective_chat.send_message("✅ Language changed to English")
 
 # ================= Main =================
+
 def main():
     app = Application.builder().token(TOKEN).post_init(set_commands).build()
+
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("restart", restart))
     app.add_handler(CommandHandler("help", help_command))
@@ -173,7 +158,7 @@ def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_link))
     app.add_handler(CallbackQueryHandler(button_handler))
 
-    print("🚀 البوت جاهز للعمل – تحميل سريع + ساعة رمليه")
+    print("🚀 Bot is running...")
     app.run_polling()
 
 if __name__ == "__main__":
