@@ -55,10 +55,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def restart_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # مسح بيانات المستخدم
     context.user_data.clear()
     await update.message.reply_text("🔄 تمت إعادة التشغيل. ابدأ من جديد بإرسال رابط الفيديو.")
-    # إعادة عرض رسالة البداية
     await start(update, context)
 
 def get_video_info(url):
@@ -85,7 +83,6 @@ async def show_loading(message):
 
 async def download_and_send(message, url: str, mode: str, limit: int):
     loading_msg = await show_loading(message)
-
     try:
         loop = asyncio.get_event_loop()
         info = await loop.run_in_executor(None, lambda: get_video_info(url))
@@ -101,7 +98,7 @@ async def download_and_send(message, url: str, mode: str, limit: int):
                 finally:
                     if os.path.exists(audio_file):
                         os.remove(audio_file)
-        else:  # video
+        else:
             with yt_dlp.YoutubeDL(VIDEO_OPTIONS) as ydl:
                 info_downloaded = await loop.run_in_executor(None, lambda: ydl.extract_info(url, download=True))
                 filename = ydl.prepare_filename(info_downloaded)
@@ -141,7 +138,8 @@ async def handle_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     keyboard = [
         [InlineKeyboardButton("🎬 فيديو", callback_data="video")],
-        [InlineKeyboardButton("🎵 صوت", callback_data="audio")]
+        [InlineKeyboardButton("🎵 صوت", callback_data="audio")],
+        [InlineKeyboardButton("🔄 إعادة التشغيل", callback_data="restart")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text("اختر ما تريد تحميله:", reply_markup=reply_markup)
@@ -149,8 +147,6 @@ async def handle_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-
-    # حذف رسالة الاختيار مباشرة بعد الضغط
     await query.message.delete()
 
     url = context.user_data.get("url")
@@ -161,6 +157,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await download_and_send(query.message, url, "video", limit)
     elif query.data == "audio":
         await download_and_send(query.message, url, "audio", limit)
+    elif query.data == "restart":
+        context.user_data.clear()
+        await query.message.reply_text("🔄 تمت إعادة التشغيل. أرسل رابط جديد.")
+        return
 
 async def set_commands(app):
     commands = [
@@ -171,15 +171,12 @@ async def set_commands(app):
     await app.bot.set_my_commands(commands)
 
 def main():
-    app = Application.builder().token(TOKEN).build()
+    app = Application.builder().token(TOKEN).post_init(set_commands).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("restart", restart_command))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_link))
     app.add_handler(CallbackQueryHandler(button_handler))
-
-    # إعداد القائمة الجانبية
-    app.post_init(set_commands)
 
     print("🚀 البوت يعمل الآن!")
     app.run_polling()
