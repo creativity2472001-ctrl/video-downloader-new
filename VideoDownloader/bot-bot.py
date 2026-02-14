@@ -8,8 +8,8 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 TOKEN = "8373058261:AAG7_Fo2P_6kv6hHRp5xcl4QghDRpX5TryA"
 
 DOWNLOAD_DIR = "downloads"
-FREE_LIMIT = 50 * 1024 * 1024      # 50MB
-PREMIUM_LIMIT = 200 * 1024 * 1024  # 200MB
+FREE_LIMIT = 50 * 1024 * 1024
+PREMIUM_LIMIT = 200 * 1024 * 1024
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
 PREMIUM_USERS = {123456789}
@@ -129,7 +129,7 @@ async def download_and_send(chat, url, mode, limit, lang):
 
         except Exception as e:
             print("Retrying download...", e)
-            await asyncio.sleep(3)  # ينتظر 3 ثواني ويعيد المحاولة
+            await asyncio.sleep(3)
 
 # ================= Link Handler =================
 async def handle_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
