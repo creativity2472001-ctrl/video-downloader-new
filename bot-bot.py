@@ -73,16 +73,24 @@ def compress_video(input_path, output_path, target_size):
     subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     return output_path
 
-async def show_loading(message):
-    msg = await message.reply_text("⏳ جاري التحميل...")
-    frames = ["⏳", "⌛"]
-    for i in range(6):
-        await asyncio.sleep(1)
-        await msg.edit_text(f"{frames[i % 2]} جاري التحميل...")
-    return msg
+async def show_loading(chat):
+    # نرسل الساعة الرملية فقط بدون نص
+    msg = await chat.send_message("⏳⏳⏳")
+    frames = ["⏳⏳⏳", "⌛⌛⌛"]
 
-async def download_and_send(message, url: str, mode: str, limit: int):
-    loading_msg = await show_loading(message)
+    # نستمر بالتبديل حتى ينتهي التحميل
+    async def animate():
+        i = 0
+        while True:
+            await asyncio.sleep(1)
+            await msg.edit_text(frames[i % 2])
+            i += 1
+
+    task = asyncio.create_task(animate())
+    return msg, task
+
+async def download_and_send(chat, url: str, mode: str, limit: int):
+    loading_msg, anim_task = await show_loading(chat)
     try:
         loop = asyncio.get_event_loop()
         info = await loop.run_in_executor(None, lambda: get_video_info(url))
@@ -92,41 +100,37 @@ async def download_and_send(message, url: str, mode: str, limit: int):
             with yt_dlp.YoutubeDL(AUDIO_OPTIONS) as ydl_audio:
                 info_audio = await loop.run_in_executor(None, lambda: ydl_audio.extract_info(url, download=True))
                 audio_file = ydl_audio.prepare_filename(info_audio).rsplit(".", 1)[0] + ".mp3"
-                try:
-                    with open(audio_file, "rb") as f:
-                        await message.reply_audio(audio=f, caption=f"🎵 تم استخراج الصوت من: {title}")
-                finally:
-                    if os.path.exists(audio_file):
-                        os.remove(audio_file)
+                with open(audio_file, "rb") as f:
+                    await chat.send_audio(audio=f, caption=f"🎵 تم استخراج الصوت من: {title}")
+                os.remove(audio_file)
         else:
             with yt_dlp.YoutubeDL(VIDEO_OPTIONS) as ydl:
                 info_downloaded = await loop.run_in_executor(None, lambda: ydl.extract_info(url, download=True))
                 filename = ydl.prepare_filename(info_downloaded)
-
-            try:
-                if limit and os.path.getsize(filename) > limit:
-                    compressed_file = filename.rsplit(".",1)[0] + "_compressed.mp4"
-                    compress_video(filename, compressed_file, limit)
-                    if os.path.getsize(compressed_file) <= limit:
-                        with open(compressed_file, "rb") as f:
-                            await message.reply_video(video=f, caption=f"🎬 تم تحميل الفيديو بعد الضغط: {title}")
-                        os.remove(compressed_file)
-                    else:
-                        os.remove(filename)
-                        await message.reply_text("⚠️ لا يمكن ضغط الفيديو بما يكفي، سيتم إرسال الصوت فقط.")
-                        await download_and_send(message, url, "audio", limit)
-                        return
+            if limit and os.path.getsize(filename) > limit:
+                compressed_file = filename.rsplit(".",1)[0] + "_compressed.mp4"
+                compress_video(filename, compressed_file, limit)
+                if os.path.getsize(compressed_file) <= limit:
+                    with open(compressed_file, "rb") as f:
+                        await chat.send_video(video=f, caption=f"🎬 تم تحميل الفيديو بعد الضغط: {title}")
+                    os.remove(compressed_file)
                 else:
-                    with open(filename, "rb") as f:
-                        await message.reply_video(video=f, caption=f"🎬 تم التحميل: {title}")
-            finally:
-                if os.path.exists(filename):
                     os.remove(filename)
+                    await chat.send_message("⚠️ لا يمكن ضغط الفيديو بما يكفي، سيتم إرسال الصوت فقط.")
+                    await download_and_send(chat, url, "audio", limit)
+                    return
+            else:
+                with open(filename, "rb") as f:
+                    await chat.send_video(video=f, caption=f"🎬 تم التحميل: {title}")
+            os.remove(filename)
 
+        # إيقاف حركة الساعة الرملية وحذفها
+        anim_task.cancel()
         await loading_msg.delete()
 
     except Exception as e:
         print(f"Error: {e}")
+        anim_task.cancel()
         await loading_msg.edit_text("❌ فشل التحميل، تحقق من الرابط أو أعد المحاولة.")
 
 async def handle_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -154,13 +158,12 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     limit = PREMIUM_LIMIT if user_id in PREMIUM_USERS else FREE_LIMIT
 
     if query.data == "video":
-        await download_and_send(query.message, url, "video", limit)
+        await download_and_send(update.effective_chat, url, "video", limit)
     elif query.data == "audio":
-        await download_and_send(query.message, url, "audio", limit)
+        await download_and_send(update.effective_chat, url, "audio", limit)
     elif query.data == "restart":
         context.user_data.clear()
-        await query.message.reply_text("🔄 تمت إعادة التشغيل. أرسل رابط جديد.")
-        return
+        await update.effective_chat.send_message("🔄 تمت إعادة التشغيل. أرسل رابط جديد.")
 
 async def set_commands(app):
     commands = [
