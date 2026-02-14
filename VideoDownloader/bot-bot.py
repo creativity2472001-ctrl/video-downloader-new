@@ -85,7 +85,12 @@ async def process_download(callback_query: types.CallbackQuery):
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
-            filename = ydl.prepare_filename(info)
+
+            # الحصول على اسم الملف الناتج بشكل آمن
+            if "requested_downloads" in info and info["requested_downloads"]:
+                filename = info["requested_downloads"][0]["filepath"]
+            else:
+                filename = info.get("_filename", ydl.prepare_filename(info))
 
         # إرسال الملف
         if choice == "download_video":
