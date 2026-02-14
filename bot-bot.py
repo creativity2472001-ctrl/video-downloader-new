@@ -2,7 +2,7 @@ import os
 import asyncio
 import yt_dlp
 import json
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 
 # --- الإعدادات الأساسية ---
@@ -10,10 +10,8 @@ TOKEN = "8373058261:AAG7_Fo2P_6kv6hHRp5xcl4QghDRpX5TryA"  # ضع التوكن ه
 DOWNLOAD_DIR = "downloads"
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
-# قائمة المستخدمين المميزين (ID)
-PREMIUM_USERS = {123456789}
+PREMIUM_USERS = {123456789}  # ضع ID المستخدمين المدفوعين هنا
 
-# ملف تفضيلات المستخدمين (اللغة)
 PREFS_FILE = "prefs.json"
 user_prefs = {}
 
@@ -29,16 +27,12 @@ def save_prefs():
 
 # ---------------- إعدادات yt-dlp ----------------
 VIDEO_OPTS = {
-    "format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+    "format": "bestvideo+bestaudio/best",
     "merge_output_format": "mp4",
     "outtmpl": f"{DOWNLOAD_DIR}/%(id)s.%(ext)s",
     "restrictfilenames": True,
     "noplaylist": True,
     "quiet": True,
-    "postprocessors": [{
-        "key": "FFmpegVideoConvertor",
-        "preferedformat": "mp4"
-    }]
 }
 
 AUDIO_OPTS = {
@@ -58,7 +52,7 @@ LANGUAGE_DATA = {
         "welcome": "🚀 أهلاً بك في EasyDown\n\n📌 حد التحميل المجاني: 50MB\n💎 حد مستخدمي بريميوم: 200MB",
         "send_link": "أرسل رابط الفيديو الآن لنبدأ 👇",
         "choose_mode": "اختر نوع الملف المطلوب:",
-        "loading": "⏳ جاري التحميل... يرجى الانتظار",
+        "loading": "⏳",
         "error": "❌ حدث خطأ: ",
         "size_error": "⚠️ عذراً! حجم الملف {size}MB يتخطى حدك المسموح ({limit}MB).",
         "invalid": "❌ يرجى إرسال رابط صحيح (YouTube, TikTok, Instagram...)",
@@ -68,7 +62,7 @@ LANGUAGE_DATA = {
         "welcome": "🚀 Welcome to EasyDown\n\n📌 Free Limit: 50MB\n💎 Premium Limit: 200MB",
         "send_link": "Send the video link to start 👇",
         "choose_mode": "Choose file type:",
-        "loading": "⏳ Downloading... please wait",
+        "loading": "⏳",
         "error": "❌ Error occurred: ",
         "size_error": "⚠️ Sorry! File size {size}MB exceeds your limit ({limit}MB).",
         "invalid": "❌ Please send a valid link.",
@@ -79,15 +73,14 @@ LANGUAGE_DATA = {
 async def get_lang(user_id):
     return user_prefs.get(str(user_id), "ar")
 
-async def hourglass_animation(msg, lang):
+async def hourglass_animation(msg):
     frames = ["⏳", "⌛", "🕰️", "⏱️"]
-    text = LANGUAGE_DATA[lang]["loading"]
     i = 0
     while True:
         try:
-            await msg.edit_text(f"{frames[i % len(frames)]} {text}")
+            await msg.edit_text(frames[i % len(frames)])
             i += 1
-            await asyncio.sleep(0.8)
+            await asyncio.sleep(1.0)  # تبديل كل ثانية
         except:
             break
 
@@ -97,7 +90,7 @@ async def download_and_send(update, url, mode):
     lang = await get_lang(user_id)
 
     status_msg = await update.effective_message.reply_text("⏳")
-    animation_task = asyncio.create_task(hourglass_animation(status_msg, lang))
+    animation_task = asyncio.create_task(hourglass_animation(status_msg))
 
     try:
         opts = AUDIO_OPTS if mode == "audio" else VIDEO_OPTS
