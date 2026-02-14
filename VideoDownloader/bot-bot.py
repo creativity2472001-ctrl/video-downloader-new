@@ -59,18 +59,27 @@ async def process_download(callback_query: types.CallbackQuery):
     # إرسال رسالة جاري التحميل
     loading_msg = await bot.send_message(callback_query.message.chat.id, "⏳ جاري التحميل...")
 
-    # إعدادات yt-dlp
+    # إعدادات yt-dlp مع ffmpeg
     if choice == "download_video":
         ydl_opts = {
             "outtmpl": "%(title)s.%(ext)s",
-            "format": "bestvideo+bestaudio/best",
-            "merge_output_format": "mp4"
+            "format": "bestvideo+bestaudio",
+            "merge_output_format": "mp4",
+            "postprocessors": [{
+                "key": "FFmpegVideoConvertor",
+                "preferedformat": "mp4"
+            }]
         }
     else:
         ydl_opts = {
             "outtmpl": "%(title)s.%(ext)s",
             "format": "bestaudio",
-            "merge_output_format": "mp3"
+            "merge_output_format": "mp3",
+            "postprocessors": [{
+                "key": "FFmpegExtractAudio",
+                "preferredcodec": "mp3",
+                "preferredquality": "192"
+            }]
         }
 
     try:
