@@ -15,10 +15,9 @@ PREMIUM_USERS = {123456789, 987654321}
 
 VIDEO_OPTIONS = {
     'format': 'bestvideo+bestaudio/best',
+    'merge_output_format': 'mp4',
     'outtmpl': f'{DOWNLOAD_DIR}/%(title)s.%(ext)s',
-    'restrictfilenames': True,
-    'noplaylist': True,
-    'merge_output_format': 'mp4'
+    'noplaylist': True
 }
 
 AUDIO_OPTIONS = {
@@ -74,23 +73,13 @@ def compress_video(input_path, output_path, target_size):
     return output_path
 
 async def show_loading(chat):
-    # نرسل الساعة الرملية فقط بدون نص
-    msg = await chat.send_message("⏳⏳⏳")
-    frames = ["⏳⏳⏳", "⌛⌛⌛"]
-
-    # نستمر بالتبديل حتى ينتهي التحميل
-    async def animate():
-        i = 0
-        while True:
-            await asyncio.sleep(1)
-            await msg.edit_text(frames[i % 2])
-            i += 1
-
-    task = asyncio.create_task(animate())
-    return msg, task
+    # إرسال GIF متحركة للساعة الرملية
+    with open("hourglass.gif", "rb") as gif:
+        msg = await chat.send_animation(animation=gif)
+    return msg
 
 async def download_and_send(chat, url: str, mode: str, limit: int):
-    loading_msg, anim_task = await show_loading(chat)
+    loading_msg = await show_loading(chat)
     try:
         loop = asyncio.get_event_loop()
         info = await loop.run_in_executor(None, lambda: get_video_info(url))
@@ -124,14 +113,11 @@ async def download_and_send(chat, url: str, mode: str, limit: int):
                     await chat.send_video(video=f, caption=f"🎬 تم التحميل: {title}")
             os.remove(filename)
 
-        # إيقاف حركة الساعة الرملية وحذفها
-        anim_task.cancel()
         await loading_msg.delete()
 
     except Exception as e:
         print(f"Error: {e}")
-        anim_task.cancel()
-        await loading_msg.edit_text("❌ فشل التحميل، تحقق من الرابط أو أعد المحاولة.")
+        await loading_msg.edit_caption("❌ فشل التحميل، تحقق من الرابط أو أعد المحاولة.")
 
 async def handle_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     url = update.message.text.strip()
