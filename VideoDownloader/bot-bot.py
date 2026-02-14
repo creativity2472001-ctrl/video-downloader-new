@@ -20,7 +20,6 @@ os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
 PREMIUM_USERS = {123456789}
 
-# ⚡ صيغة سريعة جدًا (بدون دمج ثقيل إن وجد mp4 جاهز)
 VIDEO_OPTIONS_BASE = {
     'format': '18/22/best',
     'outtmpl': f'{DOWNLOAD_DIR}/%(title)s.%(ext)s',
@@ -40,51 +39,74 @@ AUDIO_OPTIONS = {
     'quiet': True
 }
 
-# ================= Progress Hook =================
+# ====================== النصوص متعددة اللغات ======================
+TEXTS = {
+    "start": {
+        "AR": "🚀 مرحباً! أرسل رابط الفيديو وسيظهر لك الخيارات:",
+        "EN": "🚀 Welcome! Send the video link and choose an option:"
+    },
+    "choose_option": {
+        "AR": "اختر الخيار:",
+        "EN": "Choose an option:"
+    },
+    "loading": {
+        "AR": "⏳ جاري التحميل...",
+        "EN": "⏳ Loading..."
+    },
+    "help": {
+        "AR": "📖 طريقة الاستخدام:\n1️⃣ أرسل الرابط\n2️⃣ اختر فيديو أو صوت\n3️⃣ الفيديو الكبير يتم ضغطه تلقائياً",
+        "EN": "📖 How to use:\n1️⃣ Send the link\n2️⃣ Choose video or audio\n3️⃣ Large videos will be compressed automatically"
+    },
+    "restart": {
+        "AR": "🔄 أرسل رابط جديد.",
+        "EN": "🔄 Send a new link."
+    },
+    "large_file": {
+        "AR": "⚠️ الحجم كبير — سيتم إرسال الصوت فقط",
+        "EN": "⚠️ File too large — only audio will be sent"
+    },
+    "fail": {
+        "AR": "❌ فشل التحميل",
+        "EN": "❌ Download failed"
+    },
+    "language_choose": {
+        "AR": "🌐 اختر اللغة:",
+        "EN": "🌐 Choose language:"
+    }
+}
 
-def progress_hook_factory(message, loop):
-    last_percent = {"value": 0}
-
-    def hook(d):
-        if d['status'] == 'downloading':
-            percent_str = d.get('_percent_str', '0%').strip()
-            try:
-                percent = float(percent_str.replace('%', ''))
-                if percent - last_percent["value"] >= 5:
-                    last_percent["value"] = percent
-                    asyncio.run_coroutine_threadsafe(
-                        message.edit_text(f"⏳ جاري التحميل... {percent:.0f}%"),
-                        loop
-                    )
-            except:
-                pass
-
-    return hook
+def get_text(key, lang):
+    return TEXTS.get(key, {}).get(lang, "")
 
 # ================= Commands =================
-
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["lang"] = context.user_data.get("lang", "AR")
+    lang = context.user_data["lang"]
+
+    keyboard = [
+        [InlineKeyboardButton("🎬 تحميل فيديو", callback_data="video")],
+        [InlineKeyboardButton("🎵 تحميل صوت", callback_data="audio")],
+        [InlineKeyboardButton("🌐 اللغة / Language", callback_data="language")],
+        [InlineKeyboardButton("📖 المساعدة", callback_data="help")],
+        [InlineKeyboardButton("🔄 إعادة التشغيل", callback_data="restart")]
+    ]
+
     await update.message.reply_text(
-        "🚀 أرسل رابط فيديو\nاختر فيديو أو صوت\n⚡ نسخة فائقة السرعة"
+        get_text("start", lang),
+        reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
 async def restart_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
-    await update.message.reply_text("🔄 أرسل رابط جديد.")
+    await update.message.reply_text(get_text("restart", "AR"))
 
 # ================= Download Core =================
-
-async def download_and_send(chat, url, mode, limit):
-    loading_msg = await chat.send_message("⏳ جاري التحميل... 0%")
+async def download_and_send(chat, url, mode, limit, lang):
+    loading_msg = await chat.send_message(get_text("loading", lang))
     loop = asyncio.get_event_loop()
 
     try:
-        if mode == "video":
-            options = VIDEO_OPTIONS_BASE.copy()
-        else:
-            options = AUDIO_OPTIONS.copy()
-
-        options['progress_hooks'] = [progress_hook_factory(loading_msg, loop)]
+        options = VIDEO_OPTIONS_BASE.copy() if mode == "video" else AUDIO_OPTIONS.copy()
 
         def download():
             with yt_dlp.YoutubeDL(options) as ydl:
@@ -93,7 +115,6 @@ async def download_and_send(chat, url, mode, limit):
 
         filename, title = await loop.run_in_executor(None, download)
 
-        # لو صوت
         if mode == "audio":
             filename = filename.rsplit(".", 1)[0] + ".mp3"
             with open(filename, "rb") as f:
@@ -102,41 +123,36 @@ async def download_and_send(chat, url, mode, limit):
             os.remove(filename)
             return
 
-        # لو فيديو
         if os.path.getsize(filename) > limit:
-            await loading_msg.edit_text("⚠️ الحجم كبير — سيتم إرسال الصوت فقط")
-            await download_and_send(chat, url, "audio", limit)
+            await loading_msg.edit_text(get_text("large_file", lang))
+            await download_and_send(chat, url, "audio", limit, lang)
             return
 
         with open(filename, "rb") as f:
-            await chat.send_video(
-                f,
-                caption=f"🎬 {title}",
-                supports_streaming=True
-            )
+            await chat.send_video(f, caption=f"🎬 {title}", supports_streaming=True)
 
         await loading_msg.delete()
         os.remove(filename)
 
     except Exception as e:
         print(e)
-        await loading_msg.edit_text("❌ فشل التحميل")
+        await loading_msg.edit_text(get_text("fail", lang))
 
 # ================= Handlers =================
-
 async def handle_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     url = update.message.text.strip()
     context.user_data["url"] = url
+    lang = context.user_data.get("lang", "AR")
 
     keyboard = [
-        [InlineKeyboardButton("🎬 فيديو سريع", callback_data="video")],
-        [InlineKeyboardButton("🎵 صوت فقط", callback_data="audio")]
+        [InlineKeyboardButton("🎬 تحميل فيديو", callback_data="video")],
+        [InlineKeyboardButton("🎵 تحميل صوت", callback_data="audio")],
+        [InlineKeyboardButton("🌐 اللغة / Language", callback_data="language")],
+        [InlineKeyboardButton("📖 المساعدة", callback_data="help")],
+        [InlineKeyboardButton("🔄 إعادة التشغيل", callback_data="restart")]
     ]
 
-    await update.message.reply_text(
-        "اختر نوع التحميل:",
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
+    await update.message.reply_text(get_text("choose_option", lang), reply_markup=InlineKeyboardMarkup(keyboard))
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -145,21 +161,38 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     url = context.user_data.get("url")
     user_id = query.from_user.id
+    lang = context.user_data.get("lang", "AR")
     limit = PREMIUM_LIMIT if user_id in PREMIUM_USERS else FREE_LIMIT
 
-    await download_and_send(update.effective_chat, url, query.data, limit)
+    if query.data == "video":
+        await download_and_send(update.effective_chat, url, "video", limit, lang)
+    elif query.data == "audio":
+        await download_and_send(update.effective_chat, url, "audio", limit, lang)
+    elif query.data == "restart":
+        context.user_data.clear()
+        await update.effective_chat.send_message(get_text("restart", lang))
+    elif query.data == "help":
+        await update.effective_chat.send_message(get_text("help", lang))
+    elif query.data == "language":
+        keyboard = [
+            [InlineKeyboardButton("🇸🇦 العربية", callback_data="lang_ar")],
+            [InlineKeyboardButton("🇺🇸 English", callback_data="lang_en")]
+        ]
+        await update.effective_chat.send_message(get_text("language_choose", lang), reply_markup=InlineKeyboardMarkup(keyboard))
+    elif query.data.startswith("lang_"):
+        new_lang = "AR" if query.data == "lang_ar" else "EN"
+        context.user_data["lang"] = new_lang
+        await update.effective_chat.send_message(f"✅ اللغة تم تغييرها إلى {'العربية' if new_lang=='AR' else 'English'}")
 
 # ================= Main =================
-
 def main():
     app = Application.builder().token(TOKEN).build()
-
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("restart", restart_command))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_link))
     app.add_handler(CallbackQueryHandler(button_handler))
 
-    print("🚀 البوت يعمل بسرعة خارقة...")
+    print("🚀 البوت جاهز للتشغيل (متعدد اللغات)...")
     app.run_polling()
 
 if __name__ == "__main__":
