@@ -14,6 +14,8 @@ from telegram.ext import (
 TOKEN = "8373058261:AAG7_Fo2P_6kv6hHRp5xcl4QghDRpX5TryA"  # ضع توكن البوت هنا
 
 DOWNLOAD_DIR = "downloads"
+FREE_LIMIT = 50 * 1024 * 1024
+PREMIUM_LIMIT = 200 * 1024 * 1024
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
 PREMIUM_USERS = {123456789}
@@ -40,6 +42,7 @@ AUDIO_OPTIONS = {
 user_language = {}  # لتخزين لغة المستخدم
 
 # ================= دالة ترجمة النصوص =================
+
 def t(user_id, key):
     lang = user_language.get(user_id, "ar")  # الافتراضي عربي
     texts = {
@@ -58,6 +61,7 @@ def t(user_id, key):
     return texts.get(key, {}).get(lang, "")
 
 # ================= Commands =================
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [KeyboardButton("/language"), KeyboardButton("/help"), KeyboardButton("/restart")]
@@ -70,7 +74,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 # ================= Download Core =================
-async def download_and_send(chat, url, mode, user_id):
+
+async def download_and_send(chat, url, mode, limit, user_id):
     loading_msg = await chat.send_message(t(user_id, "loading"))
 
     try:
@@ -90,11 +95,16 @@ async def download_and_send(chat, url, mode, user_id):
             with open(filename, "rb") as f:
                 await chat.send_audio(f, caption=f"🎵 {title}")
             await loading_msg.delete()
-            return  # 🔹 لا نحذف الملف، يبقى محفوظ في downloads
+            return  # 🔹 لا نحذف الملف، محفوظ في downloads
 
         # لو الفيديو
+        if os.path.getsize(filename) > limit:
+            await loading_msg.edit_text("⚠️ الحجم كبير — سيتم إرسال الصوت فقط")
+            await download_and_send(chat, url, "audio", limit, user_id)
+            return
+
+        # 🔹 نرسل الفيديو كملف (send_document) ليحفظ تلقائياً في الاستوديو
         with open(filename, "rb") as f:
-            # 🔹 نرسل الفيديو كملف ليتم حفظه تلقائياً في الاستوديو
             await chat.send_document(f, caption=f"🎬 {title}")
 
         await loading_msg.delete()
@@ -108,6 +118,7 @@ async def download_and_send(chat, url, mode, user_id):
             pass
 
 # ================= Handlers =================
+
 async def handle_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     url = update.message.text.strip()
     context.user_data["url"] = url
@@ -129,6 +140,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = query.data
     user_id = query.from_user.id
     url = context.user_data.get("url")
+    limit = PREMIUM_LIMIT if user_id in PREMIUM_USERS else FREE_LIMIT
 
     if data == "language":
         keyboard = [
@@ -162,10 +174,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif data in ["video", "audio"]:
         await query.message.delete()
-        await download_and_send(update.effective_chat, url, data, user_id)
+        await download_and_send(update.effective_chat, url, data, limit, user_id)
         return
 
 # ================= Command Handlers للقائمة الصغيرة =================
+
 async def language_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [InlineKeyboardButton("🇸🇦 عربي", callback_data="lang_ar"),
@@ -186,6 +199,7 @@ async def restart_command_text(update: Update, context: ContextTypes.DEFAULT_TYP
     await update.message.reply_text(t(user_id, "restart_msg"))
 
 # ================= Main =================
+
 def main():
     app = Application.builder().token(TOKEN).build()
 
