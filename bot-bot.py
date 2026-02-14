@@ -1,234 +1,140 @@
 import os
 import asyncio
 import yt_dlp
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
+from telegram import Update
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
 TOKEN = "8373058261:AAG7_Fo2P_6kv6hHRp5xcl4QghDRpX5TryA"
-
 DOWNLOAD_DIR = "downloads"
+FREE_LIMIT = 50 * 1024 * 1024   # 50MB للمجاني
+PREMIUM_LIMIT = 200 * 1024 * 1024  # 200MB للمدفوع
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
-PREMIUM_USERS = {123456789}  # ضع ID المستخدمين المدفوعين هنا
+# قائمة المستخدمين المدفوعين (ضع الـ user_id هنا)
+PREMIUM_USERS = {123456789, 987654321}
 
-# ---------------- إعدادات yt-dlp ----------------
-
-BASE_YDL_OPTS = {
-    "format": "best[ext=mp4]/best",
-    "outtmpl": f"{DOWNLOAD_DIR}/%(title)s.%(ext)s",
-    "restrictfilenames": True,
-    "noplaylist": True,
-    "quiet": True,
-    "nocheckcertificate": True,
-    "geo_bypass": True,
+VIDEO_OPTIONS = {
+    'format': 'best[ext=mp4]/best',
+    'outtmpl': f'{DOWNLOAD_DIR}/%(title)s.%(ext)s',
+    'restrictfilenames': True,
+    'noplaylist': True,
 }
 
-AUDIO_OPTIONS = BASE_YDL_OPTS.copy()
-AUDIO_OPTIONS.update({
-    "postprocessors": [{
-        "key": "FFmpegExtractAudio",
-        "preferredcodec": "mp3",
-        "preferredquality": "192",
+AUDIO_OPTIONS = {
+    'format': 'bestaudio/best',
+    'outtmpl': f'{DOWNLOAD_DIR}/%(title)s.%(ext)s',
+    'postprocessors': [{
+        'key': 'FFmpegExtractAudio',
+        'preferredcodec': 'mp3',
+        'preferredquality': '192',
     }],
-})
-
-# ---------------- اللغات ----------------
-
-LANGUAGE_DATA = {
-    "ar": {
-        "welcome_free": "📌 مرحباً! الحد المجاني 50MB.",
-        "welcome_premium": "💎 مرحباً مستخدم مدفوع! الحد 200MB.",
-        "send_link": "🚀 أرسل الرابط",
-        "choose_mode": "اختر نوع التحميل:",
-        "help_text": "📖 طريقة التحميل:\n1️⃣ افتح المنصة\n2️⃣ انسخ الرابط\n3️⃣ أرسله للبوت\n⚡ سيتم الإرسال خلال ثوانٍ.",
-        "restart_msg": "🔄 تم إعادة تشغيل البوت!",
-        "invalid": "❌ أرسل رابط صحيح."
-    },
-    "en": {
-        "welcome_free": "📌 Welcome! Free limit 50MB.",
-        "welcome_premium": "💎 Welcome Premium user! Limit 200MB.",
-        "send_link": "🚀 Send link",
-        "choose_mode": "Choose download type:",
-        "help_text": "📖 How to download:\n1️⃣ Open platform\n2️⃣ Copy link\n3️⃣ Send it here\n⚡ You'll receive it in seconds.",
-        "restart_msg": "🔄 Bot restarted!",
-        "invalid": "❌ Send a valid link."
-    }
+    'restrictfilenames': True,
+    'noplaylist': True,
 }
-
-user_language = {}
-
-# ---------------- START ----------------
-
-async def start_message(message, context):
-    user_id = message.from_user.id
-    lang = user_language.get(user_id, "ar")
-
-    welcome = LANGUAGE_DATA[lang]["welcome_premium"] if user_id in PREMIUM_USERS else LANGUAGE_DATA[lang]["welcome_free"]
-
-    keyboard = [[
-        InlineKeyboardButton("🌐 Language", callback_data="select_lang"),
-        InlineKeyboardButton("🔄 Restart", callback_data="restart"),
-        InlineKeyboardButton("📖 Help", callback_data="help")
-    ]]
-
-    await message.reply_text(
-        f"{welcome}\n\n{LANGUAGE_DATA[lang]['send_link']}",
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await start_message(update.message, context)
-
-# ---------------- HELP ----------------
+    user_id = update.message.from_user.id
+    if user_id in PREMIUM_USERS:
+        msg = "💎 مرحباً مستخدم النسخة المدفوعة! لديك حد 200MB."
+    else:
+        msg = "📌 مرحباً! لديك حد 50MB في النسخة المجانية."
+    await update.message.reply_text(
+        f"{msg}\n\n"
+        "🎬 أرسل رابط الفيديو من YouTube, TikTok, Instagram أو Facebook.\n"
+        "يمكنك استخدام الأوامر:\n"
+        "▶️ /video <link> لتحميل الفيديو\n"
+        "🎵 /audio <link> لتحميل الصوت فقط\n"
+        "أو أرسل الرابط مباشرة وسأختار لك حسب الحجم."
+    )
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    lang = user_language.get(user_id, "ar")
-    await update.effective_message.reply_text(LANGUAGE_DATA[lang]["help_text"])
+    await update.message.reply_text(
+        "📌 استخدام البوت:\n"
+        "1️⃣ أرسل رابط الفيديو مباشرة\n"
+        "2️⃣ إذا كان أصغر من الحد المسموح به سيتم إرساله مباشرة\n"
+        "3️⃣ إذا أكبر، سيتم إرسال الصوت فقط\n\n"
+        "أوامر إضافية:\n"
+        "▶️ /video <link> لتحميل الفيديو\n"
+        "🎵 /audio <link> لتحميل الصوت فقط"
+    )
 
-# ---------------- LANGUAGE ----------------
+def get_video_info(url):
+    with yt_dlp.YoutubeDL({'quiet': True}) as ydl:
+        return ydl.extract_info(url, download=False)
 
-async def select_language(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    keyboard = [[
-        InlineKeyboardButton("🇸🇦 عربي", callback_data="lang_ar"),
-        InlineKeyboardButton("🇺🇸 English", callback_data="lang_en")
-    ]]
-    await query.message.reply_text("🌐 اختر اللغة:", reply_markup=InlineKeyboardMarkup(keyboard))
-
-async def set_language(update: Update, context: ContextTypes.DEFAULT_TYPE, lang_code):
-    query = update.callback_query
-    user_language[query.from_user.id] = lang_code
-    await query.message.reply_text("✅ تم تحديث اللغة!")
-    await start_message(query.message, context)
-
-# ---------------- RESTART ----------------
-
-async def restart(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    user_language[query.from_user.id] = "ar"
-    await query.message.reply_text(LANGUAGE_DATA["ar"]["restart_msg"])
-    await start_message(query.message, context)
-
-# ---------------- التحميل مع ساعة متقلبة ----------------
-
-async def download_and_send(message, url, mode):
-    await message.edit_reply_markup(reply_markup=None)
-
-    hourglass_msg = await message.reply_text("⏳ جاري التحميل...")
-
-    async def hourglass_animation():
-        frames = ["⏳ جاري التحميل...", "⌛ جاري التحميل..."]
-        i = 0
-        while True:
-            try:
-                await hourglass_msg.edit_text(frames[i % 2])
-                i += 1
-                await asyncio.sleep(0.7)
-            except:
-                break
-
-    animation_task = asyncio.create_task(hourglass_animation())
+async def download_and_send(update: Update, url: str, mode: str, limit: int):
+    status = await update.message.reply_text("🔍 جاري التحليل...")
 
     try:
         loop = asyncio.get_event_loop()
+        info = await loop.run_in_executor(None, lambda: get_video_info(url))
+
+        title = info.get("title", "بدون عنوان")
+        duration = info.get("duration", 0)
+
+        await status.edit_text(f"📌 {title}\n⏱ المدة: {duration} ثانية\n⬇️ جاري التحميل...")
 
         if mode == "audio":
-            with yt_dlp.YoutubeDL(AUDIO_OPTIONS) as ydl:
-                info = await loop.run_in_executor(None, lambda: ydl.extract_info(url, download=True))
-                filename = ydl.prepare_filename(info).rsplit(".", 1)[0] + ".mp3"
+            with yt_dlp.YoutubeDL(AUDIO_OPTIONS) as ydl_audio:
+                info_audio = await loop.run_in_executor(None, lambda: ydl_audio.extract_info(url, download=True))
+                audio_file = ydl_audio.prepare_filename(info_audio).rsplit(".", 1)[0] + ".mp3"
+                try:
+                    with open(audio_file, "rb") as f:
+                        await update.message.reply_audio(audio=f, caption=f"🎵 تم استخراج الصوت من: {title}")
+                finally:
+                    if os.path.exists(audio_file):
+                        os.remove(audio_file)
+        else:  # video
+            with yt_dlp.YoutubeDL(VIDEO_OPTIONS) as ydl:
+                info_downloaded = await loop.run_in_executor(None, lambda: ydl.extract_info(url, download=True))
+                filename = ydl.prepare_filename(info_downloaded)
 
-            await message.reply_audio(open(filename, "rb"))
-            os.remove(filename)
+            try:
+                # تحقق من الحجم الفعلي
+                if limit and os.path.getsize(filename) > limit:
+                    await status.edit_text("⚠️ الفيديو أكبر من الحد المسموح به، سيتم إرسال الصوت فقط.")
+                    os.remove(filename)
+                    return await download_and_send(update, url, "audio", limit)
 
-        else:
-            with yt_dlp.YoutubeDL(BASE_YDL_OPTS) as ydl:
-                info = await loop.run_in_executor(None, lambda: ydl.extract_info(url, download=True))
-                filename = ydl.prepare_filename(info)
+                with open(filename, "rb") as f:
+                    await update.message.reply_video(video=f, caption=f"🎬 تم التحميل: {title}")
+            finally:
+                if os.path.exists(filename):
+                    os.remove(filename)
 
-            await message.reply_video(
-                open(filename, "rb"),
-                supports_streaming=True
-            )
-            os.remove(filename)
+        await status.delete()
 
     except Exception as e:
-        print("Download error:", e)
-
-    finally:
-        animation_task.cancel()
-        await hourglass_msg.delete()
-
-# ---------------- استقبال الرابط ----------------
+        print(f"Error: {e}")
+        await status.edit_text("❌ فشل التحميل، تحقق من الرابط أو أعد المحاولة.")
 
 async def handle_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     url = update.message.text.strip()
-    user_id = update.effective_user.id
-    lang = user_language.get(user_id, "ar")
+    if "youtube.com/shorts/" in url:
+        url = url.replace("/shorts/", "/watch?v=")
 
-    if not url.startswith("http"):
-        await update.message.reply_text(LANGUAGE_DATA[lang]["invalid"])
+    user_id = update.message.from_user.id
+    limit = PREMIUM_LIMIT if user_id in PREMIUM_USERS else FREE_LIMIT
+    await download_and_send(update, url, "video", limit)
+
+async def video_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args:
+        await update.message.reply_text("❌ يرجى إدخال الرابط بعد الأمر /video")
         return
+    url = context.args[0]
+    user_id = update.message.from_user.id
+    limit = PREMIUM_LIMIT if user_id in PREMIUM_USERS else FREE_LIMIT
+    await download_and_send(update, url, "video", limit)
 
-    context.user_data["url"] = url
-
-    keyboard = [[
-        InlineKeyboardButton("🎬 Video", callback_data="video"),
-        InlineKeyboardButton("🎵 Audio", callback_data="audio")
-    ]]
-
-    await update.message.reply_text(
-        LANGUAGE_DATA[lang]["choose_mode"],
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
-
-# ---------------- الأزرار ----------------
-
-async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-
-    data = query.data
-
-    if data == "help":
-        await help_command(update, context)
-
-    elif data == "select_lang":
-        await select_language(update, context)
-
-    elif data == "restart":
-        await restart(update, context)
-
-    elif data in ["lang_ar", "lang_en"]:
-        await set_language(update, context, data.split("_")[1])
-
-    elif data in ["video", "audio"]:
-        url = context.user_data.get("url")
-        if url:
-            await download_and_send(query.message, url, data)
-
-# ---------------- تشغيل البوت ----------------
+async def audio_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args:
+        await update.message.reply_text("❌ يرجى إدخال الرابط بعد الأمر /audio")
+        return
+    url = context.args[0]
+    user_id = update.message.from_user.id
+    limit = PREMIUM_LIMIT if user_id in PREMIUM_USERS else FREE_LIMIT
+    await download_and_send(update, url, "audio", limit)
 
 def main():
     app = Application.builder().token(TOKEN).build()
-
-    commands = [
-        BotCommand("start", "Start"),
-        BotCommand("help", "Help"),
-    ]
-
-    async def set_commands(app):
-        await app.bot.set_my_commands(commands)
-
-    app.post_init = set_commands
-
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("help", help_command))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_link))
-    app.add_handler(CallbackQueryHandler(button_handler))
-
-    print("🚀 Bot Running...")
-    app.run_polling()
-
-if __name__ == "__main__":
-    main()
+    app.add_handler(CommandHandler("start", start
