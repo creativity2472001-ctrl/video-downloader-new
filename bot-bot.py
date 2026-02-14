@@ -137,4 +137,4 @@ async def audio_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def main():
     app = Application.builder().token(TOKEN).build()
-    app.add_handler(CommandHandler("start", start
+    app.add_handler(CommandHandler("start", start ))
