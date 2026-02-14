@@ -23,9 +23,18 @@ def get_download_type_keyboard():
 def get_menu_keyboard():
     keyboard = InlineKeyboardMarkup(row_width=2)
     keyboard.add(
-        InlineKeyboardButton("🌐 اللغة: عربي/English", callback_data="menu_language"),
+        InlineKeyboardButton("🌐 اللغة", callback_data="menu_language"),
         InlineKeyboardButton("📖 المساعدة", callback_data="menu_help"),
         InlineKeyboardButton("🔄 Restart", callback_data="menu_restart")
+    )
+    return keyboard
+
+# لوحة اختيار اللغة
+def get_language_keyboard():
+    keyboard = InlineKeyboardMarkup(row_width=2)
+    keyboard.add(
+        InlineKeyboardButton("🇸🇦 عربي", callback_data="lang_ar"),
+        InlineKeyboardButton("🇬🇧 English", callback_data="lang_en")
     )
     return keyboard
 
@@ -51,10 +60,18 @@ async def process_download(callback_query: types.CallbackQuery):
     loading_msg = await bot.send_message(callback_query.message.chat.id, "⏳ جاري التحميل...")
 
     # إعدادات yt-dlp
-    ydl_opts = {
-        "outtmpl": "%(title)s.%(ext)s",
-        "format": "bestvideo+bestaudio/best" if choice == "download_video" else "bestaudio",
-    }
+    if choice == "download_video":
+        ydl_opts = {
+            "outtmpl": "%(title)s.%(ext)s",
+            "format": "bestvideo+bestaudio/best",
+            "merge_output_format": "mp4"
+        }
+    else:
+        ydl_opts = {
+            "outtmpl": "%(title)s.%(ext)s",
+            "format": "bestaudio",
+            "merge_output_format": "mp3"
+        }
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -77,9 +94,9 @@ async def process_download(callback_query: types.CallbackQuery):
 @dp.callback_query_handler(lambda c: c.data.startswith("menu_"))
 async def process_menu(callback_query: types.CallbackQuery):
     if callback_query.data == "menu_language":
-        await bot.send_message(callback_query.message.chat.id, "اختر اللغة: عربي / English")
+        await bot.send_message(callback_query.message.chat.id, "اختر اللغة:", reply_markup=get_language_keyboard())
     elif callback_query.data == "menu_help":
-        help_text = """📖 Download instructions:
+        help_text = """📖 تعليمات التحميل:
 
 1. افتح تطبيق Instagram/TikTok/Pinterest/Likee/YouTube
 2. اختر الفيديو الذي يعجبك
@@ -88,7 +105,15 @@ async def process_menu(callback_query: types.CallbackQuery):
 5. أرسل الرابط للبوت وسيصلك الفيديو بدون علامة مائية"""
         await bot.send_message(callback_query.message.chat.id, help_text)
     elif callback_query.data == "menu_restart":
-        await bot.send_message(callback_query.message.chat.id, "🔄 تمت إعادة التشغيل. أرسل رابط جديد.")
+        await bot.send_message(callback_query.message.chat.id, "🔄 تمت إعادة التشغيل. أرسل رابط جديد.", reply_markup=get_menu_keyboard())
+
+# اختيار اللغة
+@dp.callback_query_handler(lambda c: c.data.startswith("lang_"))
+async def process_language(callback_query: types.CallbackQuery):
+    if callback_query.data == "lang_ar":
+        await bot.send_message(callback_query.message.chat.id, "✅ اللغة: عربي")
+    elif callback_query.data == "lang_en":
+        await bot.send_message(callback_query.message.chat.id, "✅ Language: English")
 
 # تشغيل البوت
 async def main():
