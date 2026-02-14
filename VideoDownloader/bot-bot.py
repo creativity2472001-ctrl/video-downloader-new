@@ -1,101 +1,98 @@
-import os
+import logging
 import asyncio
+from aiogram import Bot, Dispatcher, types
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 import yt_dlp
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
-from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
 
-# ضع التوكن الخاص ببوتك هنا
-TOKEN = '8373058261:AAG7_Fo2P_6kv6hHRp5xcl4QghDRpX5TryA'
+API_TOKEN = "8373058261:AAG7_Fo2P_6kv6hHRp5xcl4QghDRpX5TryA"
 
-# إعدادات متقدمة للسرعة والجودة
-def download_process(link, choice, file_path):
-    if choice == 'video':
-        ydl_opts = {
-            'format': 'best[ext=mp4]/best', # أسرع صيغة مدمجة
-            'outtmpl': f'{file_path}.%(ext)s',
-            'quiet': True,
-            'no_warnings': True,
-        }
-    else:
-        ydl_opts = {
-            'format': 'bestaudio/best',
-            'outtmpl': f'{file_path}.%(ext)s',
-            'postprocessors': [{
-                'key': 'FFmpegExtractAudio',
-                'preferredcodec': 'mp3',
-                'preferredquality': '192',
-            }],
-            'quiet': True,
-        }
-    
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(link, download=True)
-        return ydl.prepare_filename(info)
+logging.basicConfig(level=logging.INFO)
+bot = Bot(token=API_TOKEN)
+dp = Dispatcher(bot)
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [['اللغة 🌐', 'المساعدة 📖', 'إعادة التشغيل 🔄']]
-    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-    await update.message.reply_text("أهلاً بك! أرسل الرابط وسأقوم بالتحميل فوراً ⚡", reply_markup=reply_markup)
+# لوحة اختيار نوع التحميل
+def get_download_type_keyboard():
+    keyboard = InlineKeyboardMarkup(row_width=2)
+    keyboard.add(
+        InlineKeyboardButton("🎥 فيديو", callback_data="download_video"),
+        InlineKeyboardButton("🎵 صوت", callback_data="download_audio")
+    )
+    return keyboard
 
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text
-    if text.startswith("http"):
-        context.user_data['link'] = text
-        keyboard = [[InlineKeyboardButton("فيديو 🎬", callback_data='video'), 
-                     InlineKeyboardButton("صوت 🎵", callback_data='audio')]]
-        await update.message.reply_text("اختر نوع التحميل:", reply_markup=InlineKeyboardMarkup(keyboard))
-    elif "المساعدة" in text:
-        await update.message.reply_text("📖 أرسل الرابط مباشرة، وسأقوم بجلب الفيديو لك بدون علامة مائية.")
+# لوحة القائمة الجانبية
+def get_menu_keyboard():
+    keyboard = InlineKeyboardMarkup(row_width=2)
+    keyboard.add(
+        InlineKeyboardButton("🌐 اللغة: عربي/English", callback_data="menu_language"),
+        InlineKeyboardButton("📖 المساعدة", callback_data="menu_help"),
+        InlineKeyboardButton("🔄 Restart", callback_data="menu_restart")
+    )
+    return keyboard
 
-async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    # منع التكرار: نقوم بالإجابة على الطلب فوراً لإبلاغ تيليجرام أننا استلمناه
-    await query.answer()
-    
-    choice = query.data
-    link = context.user_data.get('link')
-    if not link: return
+# استقبال الرابط
+@dp.message_handler(commands=["start"])
+async def send_welcome(message: types.Message):
+    await message.reply("أرسل رابط الفيديو من أي موقع عالمي 🌍", reply_markup=get_menu_keyboard())
 
-    # تغيير الرسالة واختفاء الأزرار
-    loading_msg = await query.edit_message_text("جاري التحميل... ⏳")
-    
-    file_id = f"dl_{query.from_user.id}_{context.update_id}"
-    loop = asyncio.get_event_loop()
+@dp.message_handler(lambda message: message.text.startswith("http"))
+async def handle_link(message: types.Message):
+    await message.reply("اختر نوع التحميل:", reply_markup=get_download_type_keyboard())
+
+# معالجة اختيار فيديو/صوت
+@dp.callback_query_handler(lambda c: c.data in ["download_video", "download_audio"])
+async def process_download(callback_query: types.CallbackQuery):
+    url = callback_query.message.reply_to_message.text
+    choice = callback_query.data
+
+    # حذف رسالة الاختيار
+    await bot.delete_message(callback_query.message.chat.id, callback_query.message.message_id)
+
+    # إرسال رسالة جاري التحميل
+    loading_msg = await bot.send_message(callback_query.message.chat.id, "⏳ جاري التحميل...")
+
+    # إعدادات yt-dlp
+    ydl_opts = {
+        "outtmpl": "%(title)s.%(ext)s",
+        "format": "bestvideo+bestaudio/best" if choice == "download_video" else "bestaudio",
+    }
 
     try:
-        # تشغيل التحميل في "خيط" منفصل لمنع تجميد البوت (حل مشكلة البطء والخطأ)
-        filename = await loop.run_in_executor(None, download_process, link, choice, file_id)
-        
-        if choice == 'audio' and not filename.endswith('.mp3'):
-            filename = os.path.splitext(filename)[0] + '.mp3'
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+            filename = ydl.prepare_filename(info)
 
         # إرسال الملف
-        with open(filename, 'rb') as f:
-            if choice == 'video':
-                await query.message.reply_video(video=f, caption="✅ تم التحميل بنجاح!")
-            else:
-                await query.message.reply_audio(audio=f, caption="✅ تم التحميل بنجاح!")
-        
-        # حذف رسالة "جاري التحميل" بعد النجاح
-        await loading_msg.delete()
+        if choice == "download_video":
+            await bot.send_video(callback_query.message.chat.id, open(filename, "rb"))
+        else:
+            await bot.send_audio(callback_query.message.chat.id, open(filename, "rb"))
 
     except Exception as e:
-        await query.message.reply_text(f"❌ حدث خطأ: {str(e)}")
-    finally:
-        # تنظيف الملفات
-        if 'filename' in locals() and os.path.exists(filename):
-            os.remove(filename)
+        await bot.send_message(callback_query.message.chat.id, f"❌ خطأ: {e}")
 
-def main():
-    # منع إعادة المحاولة التلقائية من تيليجرام (حل مشكلة تكرار الفيديو)
-    application = Application.builder().token(TOKEN).build()
-    
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    application.add_handler(CallbackQueryHandler(button_callback))
+    # حذف رسالة التحميل
+    await bot.delete_message(callback_query.message.chat.id, loading_msg.message_id)
 
-    print("البوت يعمل بكفاءة عالية الآن...")
-    application.run_polling(drop_pending_updates=True) # يتجاهل الرسائل القديمة عند التشغيل
+# القائمة الجانبية
+@dp.callback_query_handler(lambda c: c.data.startswith("menu_"))
+async def process_menu(callback_query: types.CallbackQuery):
+    if callback_query.data == "menu_language":
+        await bot.send_message(callback_query.message.chat.id, "اختر اللغة: عربي / English")
+    elif callback_query.data == "menu_help":
+        help_text = """📖 Download instructions:
 
-if __name__ == '__main__':
-    main()
+1. افتح تطبيق Instagram/TikTok/Pinterest/Likee/YouTube
+2. اختر الفيديو الذي يعجبك
+3. اضغط زر ↪️ أو الثلاث نقاط
+4. اضغط "Copy"
+5. أرسل الرابط للبوت وسيصلك الفيديو بدون علامة مائية"""
+        await bot.send_message(callback_query.message.chat.id, help_text)
+    elif callback_query.data == "menu_restart":
+        await bot.send_message(callback_query.message.chat.id, "🔄 تمت إعادة التشغيل. أرسل رابط جديد.")
+
+# تشغيل البوت
+async def main():
+    await dp.start_polling()
+
+if __name__ == "__main__":
+    asyncio.run(main())
