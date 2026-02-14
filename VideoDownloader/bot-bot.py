@@ -8,19 +8,23 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 TOKEN = "8373058261:AAG7_Fo2P_6kv6hHRp5xcl4QghDRpX5TryA"
 
 DOWNLOAD_DIR = "downloads"
-FREE_LIMIT = 50 * 1024 * 1024
-PREMIUM_LIMIT = 200 * 1024 * 1024
+FREE_LIMIT = 50 * 1024 * 1024      # 50MB
+PREMIUM_LIMIT = 200 * 1024 * 1024  # 200MB
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
 PREMIUM_USERS = {123456789}
 
 # ===== خيارات تحميل الفيديو سريع + بدون زوم =====
 VIDEO_OPTIONS = {
-    'format': 'bestvideo+bestaudio/best',
+    'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
     'merge_output_format': 'mp4',
     'outtmpl': f'{DOWNLOAD_DIR}/%(title)s.%(ext)s',
     'noplaylist': True,
-    'quiet': True
+    'quiet': True,
+    'concurrent_fragment_downloads': 10,
+    'retries': 50,
+    'fragment_retries': 50,
+    'continuedl': True,
 }
 
 AUDIO_OPTIONS = {
@@ -33,15 +37,18 @@ AUDIO_OPTIONS = {
     }],
     'restrictfilenames': True,
     'noplaylist': True,
-    'quiet': True
+    'quiet': True,
+    'concurrent_fragment_downloads': 10,
+    'retries': 50,
+    'fragment_retries': 50,
+    'continuedl': True,
 }
 
 # ================= نصوص متعددة اللغات =================
 TEXTS = {
     "choose": {"AR": "اختر نوع التحميل:", "EN": "Choose download type:"},
     "loading": {"AR": "⏳ جاري التحميل...", "EN": "⏳ Loading..."},
-    "fail": {"AR": "❌ فشل التحميل", "EN": "❌ Download failed"},
-    "large_file": {"AR": "⚠️ الحجم كبير — سيتم إرسال الصوت فقط", "EN": "⚠️ File too large — only audio will be sent"},
+    "large_file": {"AR": "⚠️ الحجم كبير جدًا — سيتم إرسال الصوت فقط", "EN": "⚠️ File too large — only audio will be sent"},
 }
 
 def get_text(key, lang):
@@ -82,40 +89,47 @@ async def language_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def download_and_send(chat, url, mode, limit, lang):
     loading_msg = await chat.send_message(get_text("loading", lang))
     loop = asyncio.get_event_loop()
-    try:
-        options = VIDEO_OPTIONS.copy() if mode == "video" else AUDIO_OPTIONS.copy()
 
-        def download():
-            with yt_dlp.YoutubeDL(options) as ydl:
-                info = ydl.extract_info(url, download=True)
-                return ydl.prepare_filename(info), info.get("title", "بدون عنوان")
+    while True:  # ♾️ يحاول حتى ينجح
+        try:
+            options = VIDEO_OPTIONS.copy() if mode == "video" else AUDIO_OPTIONS.copy()
 
-        filename, title = await loop.run_in_executor(None, download)
+            def download():
+                with yt_dlp.YoutubeDL(options) as ydl:
+                    info = ydl.extract_info(url, download=True)
+                    return ydl.prepare_filename(info), info.get("title", "بدون عنوان")
 
-        # لو صوت
-        if mode == "audio":
-            filename = filename.rsplit(".", 1)[0] + ".mp3"
+            filename, title = await loop.run_in_executor(None, download)
+
+            # ===== صوت =====
+            if mode == "audio":
+                filename = filename.rsplit(".", 1)[0] + ".mp3"
+                with open(filename, "rb") as f:
+                    await chat.send_audio(f, caption=f"🎵 {title}")
+                await loading_msg.delete()
+                os.remove(filename)
+                return
+
+            # ===== لو الفيديو كبير جدًا =====
+            if os.path.getsize(filename) > limit:
+                await download_and_send(chat, url, "audio", limit, lang)
+                return
+
+            # ===== فيديو =====
             with open(filename, "rb") as f:
-                await chat.send_audio(f, caption=f"🎵 {title}")
+                await chat.send_video(
+                    f,
+                    caption=f"🎬 {title}",
+                    supports_streaming=True
+                )
+
             await loading_msg.delete()
             os.remove(filename)
             return
 
-        # لو فيديو كبير جدًا
-        if os.path.getsize(filename) > limit:
-            await loading_msg.edit_text(get_text("large_file", lang))
-            await download_and_send(chat, url, "audio", limit, lang)
-            return
-
-        # إرسال الفيديو
-        with open(filename, "rb") as f:
-            await chat.send_video(f, caption=f"🎬 {title}", supports_streaming=True)
-        await loading_msg.delete()
-        os.remove(filename)
-
-    except Exception as e:
-        print(e)
-        await loading_msg.edit_text(get_text("fail", lang))
+        except Exception as e:
+            print("Retrying download...", e)
+            await asyncio.sleep(3)  # ينتظر 3 ثواني ويعيد المحاولة
 
 # ================= Link Handler =================
 async def handle_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -145,7 +159,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await download_and_send(update.effective_chat, url, query.data, limit, lang)
     elif query.data.startswith("lang_"):
         context.user_data["lang"] = "AR" if query.data == "lang_ar" else "EN"
-        await update.effective_chat.send_message(f"✅ اللغة تم تغييرها إلى {'العربية' if context.user_data['lang']=='AR' else 'English'}")
+        await update.effective_chat.send_message(
+            f"✅ اللغة تم تغييرها إلى {'العربية' if context.user_data['lang']=='AR' else 'English'}"
+        )
 
 # ================= Main =================
 def main():
