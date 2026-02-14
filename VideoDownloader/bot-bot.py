@@ -11,7 +11,7 @@ from telegram.ext import (
     CallbackQueryHandler
 )
 
-TOKEN = "8373058261:AAG7_Fo2P_6kv6hHRp5xcl4QghDRpX5TryA"  # ضع توكن البوت هنا
+TOKEN = "8373058261:AAG7_Fo2P_6kv6hHRp5xcl4QghDRpX5TryA"  # ضع التوكن هنا
 
 DOWNLOAD_DIR = "downloads"
 FREE_LIMIT = 50 * 1024 * 1024
@@ -20,7 +20,6 @@ os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
 PREMIUM_USERS = {123456789}
 
-# ⚡ الصيغة الأصلية السريعة المستقرة
 VIDEO_OPTIONS_BASE = {
     'format': '18/22/best',
     'outtmpl': f'{DOWNLOAD_DIR}/%(title)s.%(ext)s',
@@ -40,16 +39,20 @@ AUDIO_OPTIONS = {
     'quiet': True
 }
 
+user_language = {}  # لتخزين لغة المستخدم
+
 # ================= Commands =================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = [
+        [InlineKeyboardButton("🌐 Language", callback_data="language")],
+        [InlineKeyboardButton("📖 Help", callback_data="help")],
+        [InlineKeyboardButton("🔄 Restart", callback_data="restart")]
+    ]
     await update.message.reply_text(
-        "🚀 أرسل رابط فيديو\nاختر فيديو أو صوت\n⚡ نسخة فائقة السرعة"
+        "🚀 أرسل رابط فيديو\nاختر فيديو أو صوت\n⚡ نسخة فائقة السرعة",
+        reply_markup=InlineKeyboardMarkup(keyboard)
     )
-
-async def restart_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data.clear()
-    await update.message.reply_text("🔄 أرسل رابط جديد.")
 
 # ================= Download Core =================
 
@@ -62,7 +65,6 @@ async def download_and_send(chat, url, mode, limit):
         else:
             options = AUDIO_OPTIONS.copy()
 
-        # ==== لا يوجد progress hook ====
         def download():
             with yt_dlp.YoutubeDL(options) as ydl:
                 info = ydl.extract_info(url, download=True)
@@ -71,7 +73,6 @@ async def download_and_send(chat, url, mode, limit):
         loop = asyncio.get_event_loop()
         filename, title = await loop.run_in_executor(None, download)
 
-        # لو صوت
         if mode == "audio":
             filename = filename.rsplit(".", 1)[0] + ".mp3"
             with open(filename, "rb") as f:
@@ -80,7 +81,6 @@ async def download_and_send(chat, url, mode, limit):
             os.remove(filename)
             return
 
-        # لو فيديو
         if os.path.getsize(filename) > limit:
             await loading_msg.edit_text("⚠️ الحجم كبير — سيتم إرسال الصوت فقط")
             await download_and_send(chat, url, "audio", limit)
@@ -97,7 +97,6 @@ async def download_and_send(chat, url, mode, limit):
         os.remove(filename)
 
     except Exception as e:
-        # ==== منع ظهور أي رسالة فشل ====
         print(e)
         try:
             await loading_msg.delete()
@@ -123,13 +122,58 @@ async def handle_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    await query.message.delete()
-
-    url = context.user_data.get("url")
+    data = query.data
     user_id = query.from_user.id
+    url = context.user_data.get("url")
     limit = PREMIUM_LIMIT if user_id in PREMIUM_USERS else FREE_LIMIT
 
-    await download_and_send(update.effective_chat, url, query.data, limit)
+    # ===== LANGUAGE MENU =====
+    if data == "language":
+        keyboard = [
+            [
+                InlineKeyboardButton("🇸🇦 عربي", callback_data="lang_ar"),
+                InlineKeyboardButton("🇺🇸 English", callback_data="lang_en")
+            ]
+        ]
+        await query.edit_message_text(
+            "اختر اللغة / Choose language:",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return
+
+    elif data == "lang_ar":
+        user_language[user_id] = "ar"
+        await query.edit_message_text("✅ تم اختيار اللغة العربية")
+        return
+
+    elif data == "lang_en":
+        user_language[user_id] = "en"
+        await query.edit_message_text("✅ Language set to English")
+        return
+
+    # ===== HELP =====
+    elif data == "help":
+        help_text = """📖 تعليمات التحميل:
+
+1. افتح Instagram/TikTok/Pinterest/Likee/YouTube
+2. اختر الفيديو الذي تريد
+3. اضغط على ↪️ أو الثلاث نقاط
+4. انسخ الرابط
+5. أرسله للبوت لتحصل على الفيديو"""
+        await query.edit_message_text(help_text)
+        return
+
+    # ===== RESTART =====
+    elif data == "restart":
+        context.user_data.clear()
+        await query.edit_message_text("🔄 البوت أعيد تشغيله، أرسل رابط جديد.")
+        return
+
+    # ===== VIDEO / AUDIO =====
+    elif data in ["video", "audio"]:
+        await query.message.delete()
+        await download_and_send(update.effective_chat, url, data, limit)
+        return
 
 # ================= Main =================
 
@@ -137,7 +181,7 @@ def main():
     app = Application.builder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("restart", restart_command))
+    app.add_handler(CommandHandler("restart", lambda u, c: restart_command(u, c)))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_link))
     app.add_handler(CallbackQueryHandler(button_handler))
 
