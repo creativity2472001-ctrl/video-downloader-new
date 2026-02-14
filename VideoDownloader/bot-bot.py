@@ -41,7 +41,7 @@ user_language = {}  # لتخزين لغة المستخدم
 
 # ================= دالة ترجمة النصوص =================
 def t(user_id, key):
-    lang = user_language.get(user_id, "ar")  # الافتراضي عربي
+    lang = user_language.get(user_id, "ar")
     texts = {
         "choose_type": {"ar": "اختر نوع التحميل:", "en": "Choose download type:"},
         "video": {"ar": "🎬 فيديو سريع", "en": "🎬 Video"},
@@ -84,21 +84,20 @@ async def download_and_send(chat, url, mode, user_id):
         loop = asyncio.get_event_loop()
         filename, title = await loop.run_in_executor(None, download)
 
-        # لو الصوت
+        # إذا اخترت الصوت فقط
         if mode == "audio":
             filename = filename.rsplit(".", 1)[0] + ".mp3"
             with open(filename, "rb") as f:
                 await chat.send_audio(f, caption=f"🎵 {title}")
             await loading_msg.delete()
-            return  # 🔹 لا نحذف الملف، يبقى محفوظ في downloads
+            return
 
-        # لو الفيديو
+        # إذا اخترت فيديو
         with open(filename, "rb") as f:
-            # 🔹 نرسل الفيديو كملف ليتم حفظه تلقائياً في الاستوديو
+            # نرسل الفيديو كملف → يحفظ تلقائياً في الاستوديو
             await chat.send_document(f, caption=f"🎬 {title}")
 
         await loading_msg.delete()
-        # 🔹 الملف يبقى محفوظ في downloads
 
     except Exception as e:
         print(e)
