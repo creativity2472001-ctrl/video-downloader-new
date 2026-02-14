@@ -73,8 +73,8 @@ def compress_video(input_path, output_path, target_size):
     return output_path
 
 async def show_loading(chat):
-    # إرسال GIF متحركة للساعة الرملية
-    with open("hourglass.gif", "rb") as gif:
+    # إرسال GIF متحركة للساعة الرملية من نفس المجلد
+    with open("clock.gif", "rb") as gif:
         msg = await chat.send_animation(animation=gif)
     return msg
 
