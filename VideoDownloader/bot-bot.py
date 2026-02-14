@@ -41,10 +41,29 @@ AUDIO_OPTIONS = {
 
 user_language = {}  # لتخزين لغة المستخدم
 
+# ================= دالة ترجمة النصوص =================
+
+def t(user_id, key):
+    lang = user_language.get(user_id, "ar")  # الافتراضي عربي
+    texts = {
+        "choose_type": {"ar": "اختر نوع التحميل:", "en": "Choose download type:"},
+        "video": {"ar": "🎬 فيديو سريع", "en": "🎬 Video"},
+        "audio": {"ar": "🎵 صوت فقط", "en": "🎵 Audio only"},
+        "loading": {"ar": "⏳ جاري التحميل...", "en": "⏳ Downloading..."},
+        "restart_msg": {"ar": "🔄 البوت أعيد تشغيله، أرسل رابط جديد.", "en": "🔄 Bot restarted, send a new link."},
+        "lang_set_ar": {"ar": "✅ تم اختيار اللغة العربية", "en": "✅ Arabic language set"},
+        "lang_set_en": {"ar": "✅ تم اختيار اللغة الإنجليزية", "en": "✅ English language set"},
+        "help_text": {
+            "ar": "📖 تعليمات التحميل:\n\n1. افتح Instagram/TikTok/Pinterest/Likee/YouTube\n2. انسخ رابط الفيديو\n3. أرسله للبوت لتحصل على الفيديو أو الصوت مباشرة",
+            "en": "📖 Download instructions:\n\n1. Open Instagram/TikTok/Pinterest/Likee/YouTube\n2. Copy the video link\n3. Send it to the bot to get the video or audio directly"
+        }
+    }
+    return texts.get(key, {}).get(lang, "")
+
 # ================= Commands =================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # ✅ زر القائمة الصغيرة (ReplyKeyboard) يظهر من البداية
+    # زر القائمة الصغيرة
     keyboard = [
         [KeyboardButton("/language"), KeyboardButton("/help"), KeyboardButton("/restart")]
     ]
@@ -57,8 +76,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ================= Download Core =================
 
-async def download_and_send(chat, url, mode, limit):
-    loading_msg = await chat.send_message("⏳ جاري التحميل...")
+async def download_and_send(chat, url, mode, limit, user_id):
+    loading_msg = await chat.send_message(t(user_id, "loading"))
 
     try:
         if mode == "video":
@@ -84,7 +103,7 @@ async def download_and_send(chat, url, mode, limit):
 
         if os.path.getsize(filename) > limit:
             await loading_msg.edit_text("⚠️ الحجم كبير — سيتم إرسال الصوت فقط")
-            await download_and_send(chat, url, "audio", limit)
+            await download_and_send(chat, url, "audio", limit, user_id)
             return
 
         with open(filename, "rb") as f:
@@ -109,14 +128,15 @@ async def download_and_send(chat, url, mode, limit):
 async def handle_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     url = update.message.text.strip()
     context.user_data["url"] = url
+    user_id = update.message.from_user.id
 
     keyboard = [
-        [InlineKeyboardButton("🎬 فيديو سريع", callback_data="video")],
-        [InlineKeyboardButton("🎵 صوت فقط", callback_data="audio")]
+        [InlineKeyboardButton(t(user_id, "video"), callback_data="video")],
+        [InlineKeyboardButton(t(user_id, "audio"), callback_data="audio")]
     ]
 
     await update.message.reply_text(
-        "اختر نوع التحميل:",
+        t(user_id, "choose_type"),
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
@@ -142,34 +162,29 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif data == "lang_ar":
         user_language[user_id] = "ar"
-        await query.edit_message_text("✅ تم اختيار اللغة العربية")
+        await query.edit_message_text(t(user_id, "lang_set_ar"))
         return
 
     elif data == "lang_en":
         user_language[user_id] = "en"
-        await query.edit_message_text("✅ Language set to English")
+        await query.edit_message_text(t(user_id, "lang_set_en"))
         return
 
     # ===== HELP =====
     elif data == "help":
-        help_text = """📖 تعليمات التحميل:
-
-1. افتح Instagram/TikTok/Pinterest/Likee/YouTube
-2. انسخ رابط الفيديو الذي تريد
-3. أرسله للبوت لتحصل على الفيديو أو الصوت مباشرة"""
-        await query.edit_message_text(help_text)
+        await query.edit_message_text(t(user_id, "help_text"))
         return
 
     # ===== RESTART =====
     elif data == "restart":
         context.user_data.clear()
-        await query.edit_message_text("🔄 البوت أعيد تشغيله، أرسل رابط جديد.")
+        await query.edit_message_text(t(user_id, "restart_msg"))
         return
 
     # ===== VIDEO / AUDIO =====
     elif data in ["video", "audio"]:
         await query.message.delete()
-        await download_and_send(update.effective_chat, url, data, limit)
+        await download_and_send(update.effective_chat, url, data, limit, user_id)
         return
 
 # ================= COMMAND HANDLERS FOR REPLY KEYBOARD =================
@@ -185,16 +200,13 @@ async def language_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    help_text = """📖 تعليمات التحميل:
-
-1. افتح Instagram/TikTok/Pinterest/Likee/YouTube
-2. انسخ رابط الفيديو الذي تريد
-3. أرسله للبوت لتحصل على الفيديو أو الصوت مباشرة"""
-    await update.message.reply_text(help_text)
+    user_id = update.message.from_user.id
+    await update.message.reply_text(t(user_id, "help_text"))
 
 async def restart_command_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
     context.user_data.clear()
-    await update.message.reply_text("🔄 البوت أعيد تشغيله، أرسل رابط جديد.")
+    await update.message.reply_text(t(user_id, "restart_msg"))
 
 # ================= Main =================
 
