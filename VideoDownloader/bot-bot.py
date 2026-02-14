@@ -65,10 +65,10 @@ async def process_download(callback_query: types.CallbackQuery):
             "outtmpl": "%(title)s.%(ext)s",
             "format": "bestvideo+bestaudio",
             "merge_output_format": "mp4",
-            "postprocessors": [{
-                "key": "FFmpegVideoConvertor",
-                "preferedformat": "mp4"
-            }]
+            "postprocessors": [
+                {"key": "FFmpegMerger"},
+                {"key": "FFmpegVideoConvertor", "preferedformat": "mp4"}
+            ]
         }
     else:
         ydl_opts = {
