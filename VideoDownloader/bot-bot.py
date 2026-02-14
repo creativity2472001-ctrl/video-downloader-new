@@ -1,7 +1,7 @@
 import os
 import asyncio
 import yt_dlp
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -11,7 +11,7 @@ from telegram.ext import (
     CallbackQueryHandler
 )
 
-TOKEN = "8373058261:AAG7_Fo2P_6kv6hHRp5xcl4QghDRpX5TryA"
+TOKEN = "8373058261:AAG7_Fo2P_6kv6hHRp5xcl4QghDRpX5TryA"  # ضع توكن البوت هنا
 
 DOWNLOAD_DIR = "downloads"
 FREE_LIMIT = 50 * 1024 * 1024
@@ -20,10 +20,9 @@ os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
 PREMIUM_USERS = {123456789}
 
-# ⚡ صيغة تحافظ على الأبعاد الأصلية بدون زوم
+# ⚡ الصيغة الأصلية السريعة المستقرة
 VIDEO_OPTIONS_BASE = {
-    'format': 'bestvideo+bestaudio/best',
-    'merge_output_format': 'mp4',
+    'format': '18/22/best',
     'outtmpl': f'{DOWNLOAD_DIR}/%(title)s.%(ext)s',
     'noplaylist': True,
     'concurrent_fragment_downloads': 8,
@@ -63,6 +62,7 @@ async def download_and_send(chat, url, mode, limit):
         else:
             options = AUDIO_OPTIONS.copy()
 
+        # ==== لا يوجد progress hook ====
         def download():
             with yt_dlp.YoutubeDL(options) as ydl:
                 info = ydl.extract_info(url, download=True)
@@ -97,8 +97,12 @@ async def download_and_send(chat, url, mode, limit):
         os.remove(filename)
 
     except Exception as e:
+        # ==== منع ظهور أي رسالة فشل ====
         print(e)
-        await loading_msg.edit_text("❌ فشل التحميل")
+        try:
+            await loading_msg.delete()
+        except:
+            pass
 
 # ================= Handlers =================
 
