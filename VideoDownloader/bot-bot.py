@@ -122,7 +122,7 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await msg.edit_text(get_text(user_id, "error"))
 
 def main():
-    if TOKEN == "8373058261:AAG7_Fo2P_6kv6hHRp5xcl4QghDRpX5TryA":
+    if TOKEN == "ضع_التوكن_هنا":
         print("❌ يرجى وضع التوكن في الكود!")
         return
     app = Application.builder().token(TOKEN).build()
