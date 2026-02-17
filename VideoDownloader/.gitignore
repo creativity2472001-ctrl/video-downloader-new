@@ -1,0 +1,24 @@
+# متغيرات البيئة
+.env
+*.env
+
+# مجلدات التحميل
+downloads/
+temp/
+
+# ملفات Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# ملفات المشروع
+bot.log
+*.log
+*.pid
+
+# معلومات敏感ة
+config.json
+secrets.json
+*.key
+*.pem
