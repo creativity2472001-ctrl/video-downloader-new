@@ -42,6 +42,18 @@ except json.JSONDecodeError:
     print("❌ خطأ: ملف 'languages.json' يحتوي على خطأ في التنسيق.")
     exit(1)
 
+# التأكد من وجود مفتاح restart_btn في كل اللغات
+for lang_code, lang_data in LANGS.items():
+    if 'restart_btn' not in lang_data:
+        if lang_code == 'ar':
+            lang_data['restart_btn'] = 'إعادة التشغيل 🔄'
+        elif lang_code == 'en':
+            lang_data['restart_btn'] = 'Restart 🔄'
+        elif lang_code == 'tr':
+            lang_data['restart_btn'] = 'Yeniden Başlat 🔄'
+        elif lang_code == 'ru':
+            lang_data['restart_btn'] = 'Перезапустить 🔄'
+
 # ======================== بيانات المستخدمين ========================
 users_lang = {}
 
@@ -52,7 +64,6 @@ def get_text(uid, key, *args):
     return text.format(*args) if args else text
 
 def main_keyboard(uid):
-    # تمت إعادة إضافة زر إعادة التشغيل
     keyboard = [[
         KeyboardButton(get_text(uid, "language")),
         KeyboardButton(get_text(uid, "help_btn")),
@@ -77,20 +88,28 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=main_keyboard(uid)
     )
 
+async def restart_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
+    context.user_data.clear()
+    await update.message.reply_text(
+        "🔄 تم إعادة التشغيل!\n" + get_text(uid, "start"),
+        reply_markup=main_keyboard(uid)
+    )
+
 async def show_languages_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
-    keyboard = []
-    lang_buttons = [
-        InlineKeyboardButton("🇸🇦 عربي", callback_data="lang_ar"),
-        InlineKeyboardButton("🇺🇸 English", callback_data="lang_en"),
-        InlineKeyboardButton("🇹🇷 Türkçe", callback_data="lang_tr"),
-        InlineKeyboardButton("🇷🇺 Русский", callback_data="lang_ru")
+    keyboard = [
+        [
+            InlineKeyboardButton("🇸🇦 عربي", callback_data="lang_ar"),
+            InlineKeyboardButton("🇺🇸 English", callback_data="lang_en")
+        ],
+        [
+            InlineKeyboardButton("🇹🇷 Türkçe", callback_data="lang_tr"),
+            InlineKeyboardButton("🇷🇺 Русский", callback_data="lang_ru")
+        ]
     ]
-    for i in range(0, len(lang_buttons), 2):
-        keyboard.append(lang_buttons[i:i+2])
-
     await update.message.reply_text(
-        "Choose your language / اختر لغتك:",
+        "🌐 اختر لغتك المفضلة:",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
@@ -199,29 +218,45 @@ async def download_media(url, is_audio):
         logger.error(f"yt-dlp error: {e}")
         return None
 
+# ======================== معالج النصوص العام ========================
+async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text
+    uid = update.effective_user.id
+    
+    # التحقق من الأزرار
+    if text in [get_text(uid, "language"), "اللغة 🌐", "Language 🌐"]:
+        await show_languages_command(update, context)
+    elif text in [get_text(uid, "help_btn"), "المساعدة 📖", "Help 📖"]:
+        await help_command(update, context)
+    elif text in [get_text(uid, "restart_btn"), "إعادة التشغيل 🔄", "Restart 🔄"]:
+        await restart_command(update, context)
+    elif any(entity.type in ["url", "text_link"] for entity in update.message.entities):
+        await handle_link(update, context)
+    else:
+        # رسالة غير مفهومة
+        await update.message.reply_text(
+            get_text(uid, "start"),
+            reply_markup=main_keyboard(uid)
+        )
+
 # ======================== التشغيل ========================
 def main():
     print("🚀 بدء تشغيل البوت...")
     
     app = Application.builder().token(TOKEN).build()
     
+    # معالجات الأوامر
     app.add_handler(CommandHandler("start", start_command))
     
-    # بناء معالجات الأزرار النصية ديناميكياً
-    all_lang_buttons = [LANGS[lang]['language'] for lang in LANGS]
-    all_help_buttons = [LANGS[lang]['help_btn'] for lang in LANGS]
-    all_restart_buttons = [LANGS[lang]['restart_btn'] for lang in LANGS] # تمت إضافة هذا السطر
+    # معالج النصوص العام (هذا هو المهم!)
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     
-    app.add_handler(MessageHandler(filters.Text(all_lang_buttons), show_languages_command))
-    app.add_handler(MessageHandler(filters.Text(all_help_buttons), help_command))
-    app.add_handler(MessageHandler(filters.Text(all_restart_buttons), start_command)) # تمت إضافة هذا السطر
-
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & (filters.Entity("url") | filters.Entity("text_link")), handle_link))
-    
+    # معالجات الأزرار التفاعلية (Inline)
     app.add_handler(CallbackQueryHandler(set_language_callback, pattern="^lang_"))
     app.add_handler(CallbackQueryHandler(quality_handler_callback, pattern="^quality_"))
     
     print("✅ البوت يعمل الآن!")
+    print("📝 الأزرار الثلاثة (اللغة، المساعدة، إعادة التشغيل) ستعمل بشكل صحيح")
     app.run_polling()
 
 if __name__ == "__main__":
