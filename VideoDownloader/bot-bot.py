@@ -1,4 +1,5 @@
 import os
+import json
 import asyncio
 import yt_dlp
 import logging
@@ -13,7 +14,6 @@ from telegram.ext import (
 )
 
 # ======================== الإعدادات الأساسية ========================
-# ضع التوكن الخاص بك هنا مباشرة أو استخدم متغيرات البيئة
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
 
 if TOKEN == "YOUR_BOT_TOKEN_HERE":
@@ -31,94 +31,28 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# ======================== ملف اللغات (موسع) ========================
-LANGS = {
-    "ar": {
-        "start": "🎬 أهلاً بك! أرسل رابط فيديو لتحميله.",
-        "help": "📖 **تعليمات التحميل:**\n\n1. اذهب إلى تطبيق انستغرام/تيك توك/يوتيوب.\n2. اختر الفيديو الذي تريده.\n3. اضغط على زر المشاركة ↪️ أو النقاط الثلاث.\n4. اضغط على \"نسخ الرابط\".\n5. أرسل الرابط إلى البوت وستحصل على الفيديو خلال ثوانٍ.",
-        "choose": "🎯 اختر الجودة:",
-        "video_auto": "أفضل جودة ✨",
-        "audio": "صوت فقط 🎵",
-        "wait": "⏳ جاري التحميل، يرجى الانتظار...",
-        "error": "❌ حدث خطأ. يرجى التأكد من أن الرابط صحيح والمحاولة مرة أخرى.",
-        "too_large": "⚠️ الملف كبير جداً ({0}MB). لا يمكن إرساله.",
-        "language": "🌐 اللغة",
-        "help_btn": "📖 المساعدة",
-        "restart_btn": "🔄 إعادة التشغيل",
-        "lang_choose": "🌐 اختر لغتك:",
-        "lang_done": "✅ تم تغيير اللغة بنجاح."
-    },
-    "en": {
-        "start": "🎬 Welcome! Send a video link to download.",
-        "help": "📖 **Download instructions:**\n\n1. Go to the Instagram/TikTok/YouTube app.\n2. Choose a video you like.\n3. Tap the ↪️ button or the three dots.\n4. Tap the \"Copy\" button.\n5. Send the link to the bot and in a few seconds you'll get the video.",
-        "choose": "🎯 Choose quality:",
-        "video_auto": "Best Quality ✨",
-        "audio": "Audio Only 🎵",
-        "wait": "⏳ Downloading, please wait...",
-        "error": "❌ An error occurred. Please ensure the link is correct and try again.",
-        "too_large": "⚠️ File is too large ({0}MB). Cannot send.",
-        "language": "🌐 Language",
-        "help_btn": "📖 Help",
-        "restart_btn": "🔄 Restart",
-        "lang_choose": "🌐 Choose your language:",
-        "lang_done": "✅ Language changed successfully."
-    },
-    "de": {
-        "start": "🎬 Willkommen! Senden Sie einen Video-Link zum Herunterladen.",
-        "help": "📖 **Anleitung zum Herunterladen:**\n\n1. Gehen Sie zur Instagram/TikTok/YouTube-App.\n2. Wählen Sie ein Video, das Ihnen gefällt.\n3. Tippen Sie auf die ↪️-Schaltfläche oder die drei Punkte.\n4. Tippen Sie auf die „Kopieren“-Schaltfläche.\n5. Senden Sie den Link an den Bot und in wenigen Sekunden erhalten Sie das Video.",
-        "choose": "🎯 Qualität wählen:",
-        "video_auto": "Beste Qualität ✨",
-        "audio": "Nur Audio 🎵",
-        "wait": "⏳ Wird heruntergeladen, bitte warten...",
-        "error": "❌ Ein Fehler ist aufgetreten. Bitte stellen Sie sicher, dass der Link korrekt ist und versuchen Sie es erneut.",
-        "too_large": "⚠️ Datei ist zu groß ({0}MB). Senden nicht möglich.",
-        "language": "🌐 Sprache",
-        "help_btn": "📖 Hilfe",
-        "restart_btn": "🔄 Neustart",
-        "lang_choose": "🌐 Wählen Sie Ihre Sprache:",
-        "lang_done": "✅ Sprache erfolgreich geändert."
-    },
-    "fr": {
-        "start": "🎬 Bienvenue ! Envoyez un lien vidéo pour le télécharger.",
-        "help": "📖 **Instructions de téléchargement :**\n\n1. Allez sur l'application Instagram/TikTok/YouTube.\n2. Choisissez une vidéo que vous aimez.\n3. Appuyez sur le bouton ↪️ ou les trois points.\n4. Appuyez sur le bouton « Copier ».\n5. Envoyez le lien au bot et en quelques secondes, vous obtiendrez la vidéo.",
-        "choose": "🎯 Choisissez la qualité :",
-        "video_auto": "Meilleure qualité ✨",
-        "audio": "Audio seulement 🎵",
-        "wait": "⏳ Téléchargement en cours, veuillez patienter...",
-        "error": "❌ Une erreur s'est produite. Veuillez vous assurer que le lien est correct et réessayez.",
-        "too_large": "⚠️ Le fichier est trop volumineux ({0}MB). Envoi impossible.",
-        "language": "🌐 Langue",
-        "help_btn": "📖 Aide",
-        "restart_btn": "🔄 Redémarrer",
-        "lang_choose": "🌐 Choisissez votre langue :",
-        "lang_done": "✅ Langue changée avec succès."
-    },
-    "tr": {
-        "start": "🎬 Hoş geldiniz! İndirmek için bir video bağlantısı gönderin.",
-        "help": "📖 **İndirme talimatları:**\n\n1. Instagram/TikTok/YouTube uygulamasına gidin.\n2. Beğendiğiniz bir video seçin.\n3. ↪️ düğmesine veya üç noktaya dokunun.\n4. \"Kopyala\" düğmesine dokunun.\n5. Bağlantıyı bota gönderin ve birkaç saniye içinde videoyu alacaksınız.",
-        "choose": "🎯 Kaliteyi seçin:",
-        "video_auto": "En İyi Kalite ✨",
-        "audio": "Sadece Ses 🎵",
-        "wait": "⏳ İndiriliyor, lütfen bekleyin...",
-        "error": "❌ Bir hata oluştu. Lütfen bağlantının doğru olduğundan emin olun ve tekrar deneyin.",
-        "too_large": "⚠️ Dosya çok büyük ({0}MB). Gönderilemiyor.",
-        "language": "🌐 Dil",
-        "help_btn": "📖 Yardım",
-        "restart_btn": "🔄 Yeniden Başlat",
-        "lang_choose": "🌐 Dilinizi seçin:",
-        "lang_done": "✅ Dil başarıyla değiştirildi."
-    }
-}
+# ======================== تحميل ملف اللغات ========================
+try:
+    with open('languages.json', 'r', encoding='utf-8') as f:
+        LANGS = json.load(f)
+except FileNotFoundError:
+    print("❌ خطأ: ملف 'languages.json' غير موجود!")
+    exit(1)
+except json.JSONDecodeError:
+    print("❌ خطأ: ملف 'languages.json' يحتوي على خطأ في التنسيق.")
+    exit(1)
 
 # ======================== بيانات المستخدمين ========================
 users_lang = {}
 
 def get_text(uid, key, *args):
     lang = users_lang.get(uid, "ar")
-    text = LANGS.get(lang, LANGS["en"]).get(key, "")
+    lang_data = LANGS.get(lang, LANGS["en"])
+    text = lang_data.get(key, f"<{key}>")
     return text.format(*args) if args else text
 
 def main_keyboard(uid):
+    # تمت إعادة إضافة زر إعادة التشغيل
     keyboard = [[
         KeyboardButton(get_text(uid, "language")),
         KeyboardButton(get_text(uid, "help_btn")),
@@ -145,13 +79,18 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def show_languages_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
-    keyboard = [
-        [InlineKeyboardButton("🇸🇦 عربي", callback_data="lang_ar"), InlineKeyboardButton("🇺🇸 English", callback_data="lang_en")],
-        [InlineKeyboardButton("🇩🇪 Deutsch", callback_data="lang_de"), InlineKeyboardButton("🇫🇷 Français", callback_data="lang_fr")],
-        [InlineKeyboardButton("🇹🇷 Türkçe", callback_data="lang_tr")]
+    keyboard = []
+    lang_buttons = [
+        InlineKeyboardButton("🇸🇦 عربي", callback_data="lang_ar"),
+        InlineKeyboardButton("🇺🇸 English", callback_data="lang_en"),
+        InlineKeyboardButton("🇹🇷 Türkçe", callback_data="lang_tr"),
+        InlineKeyboardButton("🇷🇺 Русский", callback_data="lang_ru")
     ]
+    for i in range(0, len(lang_buttons), 2):
+        keyboard.append(lang_buttons[i:i+2])
+
     await update.message.reply_text(
-        get_text(uid, "lang_choose"),
+        "Choose your language / اختر لغتك:",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
@@ -213,7 +152,7 @@ async def quality_handler_callback(update: Update, context: ContextTypes.DEFAULT
             os.remove(file_path)
             return
         
-        await msg.delete()
+        await msg.edit_text(get_text(uid, "done"))
         caption_text = f"Downloaded via @{context.bot.username}"
         with open(file_path, 'rb') as f:
             if is_audio:
@@ -222,6 +161,7 @@ async def quality_handler_callback(update: Update, context: ContextTypes.DEFAULT
                 await context.bot.send_video(query.message.chat_id, video=f, caption=caption_text)
         
         os.remove(file_path)
+        await msg.delete()
         
     except Exception as e:
         logger.error(f"Error during download/upload: {e}")
@@ -253,7 +193,6 @@ async def download_media(url, is_audio):
             if is_audio:
                 base, _ = os.path.splitext(filename)
                 final_filename = base + '.mp3'
-                # التأكد من وجود الملف قبل إعادته
                 return final_filename if os.path.exists(final_filename) else None
             return filename
     except Exception as e:
@@ -266,19 +205,19 @@ def main():
     
     app = Application.builder().token(TOKEN).build()
     
-    # معالج أمر البدء
     app.add_handler(CommandHandler("start", start_command))
     
-    # معالجات الأزرار النصية السفلية
-    # يتم استخدام فلاتر نصية دقيقة بدلاً من Regex لتجنب التعقيد
-    app.add_handler(MessageHandler(filters.Text([LANGS[lang]['language'] for lang in LANGS]), show_languages_command))
-    app.add_handler(MessageHandler(filters.Text([LANGS[lang]['help_btn'] for lang in LANGS]), help_command))
-    app.add_handler(MessageHandler(filters.Text([LANGS[lang]['restart_btn'] for lang in LANGS]), start_command))
+    # بناء معالجات الأزرار النصية ديناميكياً
+    all_lang_buttons = [LANGS[lang]['language'] for lang in LANGS]
+    all_help_buttons = [LANGS[lang]['help_btn'] for lang in LANGS]
+    all_restart_buttons = [LANGS[lang]['restart_btn'] for lang in LANGS] # تمت إضافة هذا السطر
+    
+    app.add_handler(MessageHandler(filters.Text(all_lang_buttons), show_languages_command))
+    app.add_handler(MessageHandler(filters.Text(all_help_buttons), help_command))
+    app.add_handler(MessageHandler(filters.Text(all_restart_buttons), start_command)) # تمت إضافة هذا السطر
 
-    # معالج الروابط
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & (filters.Entity("url") | filters.Entity("text_link")), handle_link))
     
-    # معالجات الأزرار المضمنة (Callbacks)
     app.add_handler(CallbackQueryHandler(set_language_callback, pattern="^lang_"))
     app.add_handler(CallbackQueryHandler(quality_handler_callback, pattern="^quality_"))
     
