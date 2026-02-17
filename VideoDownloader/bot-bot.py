@@ -2,7 +2,6 @@ import os
 import asyncio
 import yt_dlp
 import logging
-import time
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup
 from telegram.ext import (
     Application,
@@ -13,189 +12,125 @@ from telegram.ext import (
     CallbackQueryHandler
 )
 
-# إعداد التسجيل لمتابعة ما يحدث في الخلفية
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
-)
+# --- ضع التوكن الخاص بك هنا ---
+TOKEN = "8373058261:AAG7_Fo2P_6kv6hHRp5xcl4QghDRpX5TryA"
+# ----------------------------
+
+# إعداد التسجيل لرؤية الأخطاء في الـ CMD
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------
-# ضع التوكن الخاص بك هنا مباشرة
-# ---------------------------------------------------------
-TOKEN = "8373058261:AAG7_Fo2P_6kv6hHRp5xcl4QghDRpX5TryA" 
-# ---------------------------------------------------------
-
 DOWNLOAD_DIR = "downloads"
-os.makedirs(DOWNLOAD_DIR, exist_ok=True)
+if not os.path.exists(DOWNLOAD_DIR):
+    os.makedirs(DOWNLOAD_DIR)
 
-def get_ytdl_options(mode, filename_template):
-    # خيارات متقدمة جداً لتجاوز الحماية ومحاكاة المتصفح
-    common_opts = {
-        'outtmpl': filename_template,
-        'noplaylist': True,
-        'quiet': True,
-        'no_warnings': True,
-        'nocheckcertificate': True,
-        'ignoreerrors': True, # لا يتوقف عند الأخطاء البسيطة
-        'no_color': True,
-        'geo_bypass': True,
-        'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'referer': 'https://www.google.com/',
-        'retries': 10, # يحاول 10 مرات قبل اليأس
-        'fragment_retries': 10,
-        'socket_timeout': 60,
-    }
-    
-    if mode == "video":
-        # محاولة الحصول على أفضل توافق (صورة وصوت)
-        common_opts.update({
-            'format': 'bestvideo[vcodec^=avc1]+bestaudio[acodec^=mp4a]/best[ext=mp4]/best',
-            'merge_output_format': 'mp4',
-        })
-    else: # mode == "audio"
-        common_opts.update({
-            'format': 'bestaudio/best',
-            'postprocessors': [{
-                'key': 'FFmpegExtractAudio',
-                'preferredcodec': 'mp3',
-                'preferredquality': '192',
-            }],
-        })
-    return common_opts
+# قاموس اللغات
+user_lang = {}
 
-user_language = {}
-
-def t(user_id, key):
-    lang = user_language.get(user_id, "ar")
+def get_text(user_id, key):
+    lang = user_lang.get(user_id, "ar")
     texts = {
-        "choose_type": {"ar": "اختر نوع التحميل:", "en": "Choose type:"},
+        "start": {"ar": "أهلاً بك! أرسل رابط فيديو للتحميل.", "en": "Welcome! Send a video link to download."},
+        "choose": {"ar": "اختر نوع التحميل:", "en": "Choose download type:"},
         "video": {"ar": "فيديو 🎬", "en": "Video 🎬"},
         "audio": {"ar": "صوت 🎵", "en": "Audio 🎵"},
-        "loading": {"ar": "جاري التحميل... (قد يستغرق وقتاً للفيديوهات الطويلة) ⏳", "en": "Downloading... (may take time for long videos) ⏳"},
-        "restart_msg": {"ar": "🔄 تم البدء من جديد.", "en": "🔄 Restarted."},
-        "error_msg": {"ar": "❌ حدثت مشكلة في هذا الرابط، سأحاول مرة أخرى بطريقة مختلفة...", "en": "❌ Issue with this link, retrying differently..."},
-        "file_too_large": {"ar": "⚠️ الملف كبير جداً (أكثر من 50MB)، تيليجرام قد لا يسمح بإرساله.", "en": "⚠️ File too large (>50MB)."},
-        "help_text": {"ar": "📖 أرسل أي رابط وسأحاول تحميله لك مهما كان.", "en": "📖 Send any link and I'll try to download it."}
+        "wait": {"ar": "جاري التحميل... يرجى الانتظار ⏳", "en": "Downloading... please wait ⏳"},
+        "error": {"ar": "❌ حدث خطأ، تأكد من الرابط وحاول مرة أخرى.", "en": "❌ Error, check the link and try again."},
+        "help": {"ar": "📖 أرسل رابط فيديو من يوتيوب أو تيك توك أو إنستغرام وسأقوم بتحميله لك.", "en": "📖 Send a video link from YouTube, TikTok, or Instagram and I will download it."},
+        "lang_done": {"ar": "✅ تم اختيار اللغة العربية", "en": "✅ English language set"}
     }
-    return texts.get(key, {}).get(lang, "")
+    return texts[key][lang]
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [[KeyboardButton("اللغة 🌐"), KeyboardButton("المساعدة 📖")], [KeyboardButton("إعادة التشغيل 🔄")]]
-    await update.message.reply_text("مرحباً بك! أنا جاهز لتحميل أي فيديو تريده. فقط أرسل الرابط.", reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True))
+    keyboard = [[KeyboardButton("اللغة 🌐"), KeyboardButton("المساعدة 📖")]]
+    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+    await update.message.reply_text(get_text(update.effective_user.id, "start"), reply_markup=reply_markup)
 
-async def download_and_send(chat, url, mode, user_id):
-    loading_msg = await chat.send_message(t(user_id, "loading"))
-    actual_filename = None
-    
-    try:
-        unique_id = f"{user_id}_{int(time.time())}"
-        filename_template = f'{DOWNLOAD_DIR}/{unique_id}_%(title)s.%(ext)s'
-        
-        def download():
-            # محاولة التحميل مع خيارات قوية
-            with yt_dlp.YoutubeDL(get_ytdl_options(mode, filename_template)) as ydl:
-                info = ydl.extract_info(url, download=True)
-                if not info: return None
-                return {
-                    'filename': ydl.prepare_filename(info),
-                    'title': info.get("title", "video"),
-                    'width': info.get("width"),
-                    'height': info.get("height"),
-                    'duration': info.get("duration")
-                }
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text
+    user_id = update.effective_user.id
 
-        loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(None, download)
-        
-        if not result:
-            # محاولة ثانية بخيارات أبسط في حال فشل الأولى
-            def retry_download():
-                opts = get_ytdl_options(mode, filename_template)
-                opts['format'] = 'best' # اختيار أي شيء متاح
-                with yt_dlp.YoutubeDL(opts) as ydl:
-                    info = ydl.extract_info(url, download=True)
-                    if not info: return None
-                    return {'filename': ydl.prepare_filename(info), 'title': info.get("title", "video")}
-            
-            result = await loop.run_in_executor(None, retry_download)
-
-        if not result: raise Exception("Failed to download after retries")
-
-        filename = result['filename']
-        actual_filename = filename
-        
-        # التأكد من وجود الملف وتصحيح الامتداد
-        base = os.path.splitext(filename)[0]
-        for ext in ['.mp4', '.mkv', '.webm', '.mp3']:
-            if os.path.exists(base + ext):
-                actual_filename = base + ext
-                break
-
-        if not os.path.exists(actual_filename): raise Exception("File not found")
-
-        with open(actual_filename, "rb") as f:
-            if mode == "audio":
-                await chat.send_audio(audio=f, caption=f"🎵 {result.get('title')}")
-            else:
-                await chat.send_video(
-                    video=f, 
-                    caption=f"🎬 {result.get('title')}", 
-                    supports_streaming=True,
-                    width=result.get('width'),
-                    height=result.get('height'),
-                    duration=result.get('duration')
-                )
-
-        await loading_msg.delete()
-        
-    except Exception as e:
-        logger.error(f"Final Error: {e}")
-        try: await loading_msg.edit_text("❌ عذراً، هذا الرابط محمي جداً أو الفيديو غير متاح حالياً.")
-        except: pass
-            
-    finally:
-        if actual_filename and os.path.exists(actual_filename):
-            try: os.remove(actual_filename)
-            except: pass
-
-async def handle_text_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text, user_id = update.message.text, update.message.from_user.id
-    if "http" in text:
-        # استخراج الرابط فقط من النص
-        url = text[text.find("http"):].split()[0]
-        context.user_data["url"] = url
-        keyboard = [[InlineKeyboardButton(t(user_id, "video"), callback_data="video")], [InlineKeyboardButton(t(user_id, "audio"), callback_data="audio")]]
-        await update.message.reply_text(t(user_id, "choose_type"), reply_markup=InlineKeyboardMarkup(keyboard))
+    if text == "المساعدة 📖":
+        await update.message.reply_text(get_text(user_id, "help"))
     elif text == "اللغة 🌐":
-        keyboard = [[InlineKeyboardButton("🇸🇦 عربي", callback_data="lang_ar"), InlineKeyboardButton("🇺🇸 English", callback_data="lang_en")]]
-        await update.message.reply_text("اختر اللغة:", reply_markup=InlineKeyboardMarkup(keyboard))
-    elif text == "المساعدة 📖":
-        await update.message.reply_text(t(user_id, "help_text"))
-    elif text == "إعادة التشغيل 🔄":
-        await update.message.reply_text(t(user_id, "restart_msg"))
+        keyboard = [[InlineKeyboardButton("🇸🇦 عربي", callback_data="set_ar"), 
+                     InlineKeyboardButton("🇺🇸 English", callback_data="set_en")]]
+        await update.message.reply_text("اختر اللغة / Choose language:", reply_markup=InlineKeyboardMarkup(keyboard))
+    elif "http" in text:
+        context.user_data["url"] = text
+        keyboard = [[InlineKeyboardButton(get_text(user_id, "video"), callback_data="dl_video"),
+                     InlineKeyboardButton(get_text(user_id, "audio"), callback_data="dl_audio")]]
+        await update.message.reply_text(get_text(user_id, "choose"), reply_markup=InlineKeyboardMarkup(keyboard))
 
-async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    data, user_id, url = query.data, query.from_user.id, context.user_data.get("url")
+    user_id = query.from_user.id
+    data = query.data
 
-    if data.startswith("lang_"):
-        user_language[user_id] = data.split("_")[1]
-        await query.edit_message_text("✅ تم التحديث")
-    elif data in ["video", "audio"]:
+    if data.startswith("set_"):
+        user_lang[user_id] = data.split("_")[1]
+        await query.edit_message_text(get_text(user_id, "lang_done"))
+    
+    elif data.startswith("dl_"):
+        mode = data.split("_")[1]
+        url = context.user_data.get("url")
         if not url: return
+        
         await query.message.delete()
-        asyncio.create_task(download_and_send(update.effective_chat, url, data, user_id))
+        msg = await context.bot.send_message(chat_id=query.message.chat_id, text=get_text(user_id, "wait"))
+        
+        try:
+            unique_name = f"{DOWNLOAD_DIR}/{user_id}_{int(asyncio.get_event_loop().time())}"
+            ydl_opts = {
+                'outtmpl': f"{unique_name}.%(ext)s",
+                'quiet': True,
+                'no_warnings': True,
+            }
+            
+            if mode == "video":
+                ydl_opts['format'] = 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best'
+                ydl_opts['merge_output_format'] = 'mp4'
+            else:
+                ydl_opts['format'] = 'bestaudio/best'
+                ydl_opts['postprocessors'] = [{'key': 'FFmpegExtractAudio','preferredcodec': 'mp3','preferredquality': '192'}]
+
+            def download():
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    info = ydl.extract_info(url, download=True)
+                    return ydl.prepare_filename(info), info.get('title', 'video'), info.get('width'), info.get('height'), info.get('duration')
+
+            loop = asyncio.get_event_loop()
+            filename, title, w, h, d = await loop.run_in_executor(None, download)
+            
+            # التأكد من اسم الملف النهائي (خاصة في الصوت)
+            final_file = filename
+            if mode == "audio" and not filename.endswith(".mp3"):
+                final_file = os.path.splitext(filename)[0] + ".mp3"
+
+            with open(final_file, "rb") as f:
+                if mode == "audio":
+                    await context.bot.send_audio(chat_id=query.message.chat_id, audio=f, caption=f"🎵 {title}")
+                else:
+                    await context.bot.send_video(chat_id=query.message.chat_id, video=f, caption=f"🎬 {title}", width=w, height=h, duration=d, supports_streaming=True)
+            
+            await msg.delete()
+            if os.path.exists(final_file): os.remove(final_file)
+            
+        except Exception as e:
+            logger.error(f"Error: {e}")
+            await msg.edit_text(get_text(user_id, "error"))
 
 def main():
-    if TOKEN == "8373058261:AAG7_Fo2P_6kv6hHRp5xcl4QghDRpX5TryA": return print("❌ يرجى وضع التوكن!")
+    if TOKEN == "8373058261:AAG7_Fo2P_6kv6hHRp5xcl4QghDRpX5TryA":
+        print("❌ يرجى وضع التوكن في الكود!")
+        return
     app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_input))
-    app.add_handler(CallbackQueryHandler(button_handler))
-    print("🚀 البوت القوي يعمل الآن...")
-    app.run_polling(drop_pending_updates=True)
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    app.add_handler(CallbackQueryHandler(button_click))
+    print("🚀 البوت يعمل الآن بنجاح...")
+    app.run_polling()
 
 if __name__ == "__main__":
     main()
