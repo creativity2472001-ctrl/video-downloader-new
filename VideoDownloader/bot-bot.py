@@ -1,225 +1,208 @@
 import os
 import json
+import sqlite3
 import logging
-import asyncio
-import shutil
-import re
-from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
-import yt_dlp
+from telegram import (
+    ReplyKeyboardMarkup,
+    KeyboardButton,
+    InlineKeyboardMarkup,
+    InlineKeyboardButton,
+    Update
+)
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    MessageHandler,
+    CallbackQueryHandler,
+    ContextTypes,
+    filters
+)
 
-# إعداد السجلات
-logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
-logger = logging.getLogger(__name__)
+# =========================
+# Logging
+# =========================
+logging.basicConfig(
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    level=logging.INFO
+)
 
-# الثوابت
-MAX_SIZE_MB = 80
-MAX_HEIGHT = 720
-DOWNLOAD_DIR = "downloads"
+# =========================
+# Token
+# =========================
+TOKEN = os.getenv("BOT_TOKEN")
 
-# تحميل ملف اللغات
+if not TOKEN:
+    raise ValueError("BOT_TOKEN not set!")
+
+# =========================
+# Load Languages
+# =========================
 try:
-    with open('languages.json', 'r', encoding='utf-8') as f:
-        LANGUAGES = json.load(f)
+    with open("languages.json", "r", encoding="utf-8") as f:
+        LANG = json.load(f)
 except Exception as e:
-    logger.error(f"Failed to load languages.json: {e}")
-    # لغة احتياطية في حال فشل الملف
-    LANGUAGES = {"ar": {"welcome": "مرحباً!", "language_btn": "🌐 اللغة", "help_btn": "📖 المساعدة"}}
+    logging.error("Error loading languages.json: %s", e)
+    raise
 
-# تخزين لغات المستخدمين
-user_langs = {}
-# منع العمليات المتزامنة
-processing_users = set()
+# =========================
+# Database (SQLite)
+# =========================
+conn = sqlite3.connect("users.db", check_same_thread=False)
+cursor = conn.cursor()
 
-def get_text(user_id, key, **kwargs):
-    lang = user_langs.get(user_id, 'ar')
-    lang_data = LANGUAGES.get(lang, LANGUAGES['ar'])
-    text = lang_data.get(key, LANGUAGES['ar'].get(key, key))
-    return text.format(**kwargs)
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS users (
+    user_id INTEGER PRIMARY KEY,
+    language TEXT
+)
+""")
+conn.commit()
 
-def get_main_keyboard(user_id):
-    lang = user_langs.get(user_id, 'ar')
-    # زرين فقط كما طلبت في المتطلبات
-    keyboard = [
-        [LANGUAGES[lang]['language_btn'], LANGUAGES[lang]['help_btn']]
-    ]
-    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+def get_lang(user_id):
+    cursor.execute("SELECT language FROM users WHERE user_id=?", (user_id,))
+    row = cursor.fetchone()
+    if row:
+        return row[0]
+    return "ar"
 
+def set_lang(user_id, lang):
+    cursor.execute("""
+    INSERT INTO users (user_id, language)
+    VALUES (?, ?)
+    ON CONFLICT(user_id) DO UPDATE SET language=excluded.language
+    """, (user_id, lang))
+    conn.commit()
+
+def t(user_id, key):
+    lang = get_lang(user_id)
+    return LANG.get(lang, LANG["en"]).get(key, "")
+
+# =========================
+# Menu
+# =========================
+def main_menu(user_id):
+    return ReplyKeyboardMarkup(
+        [
+            [
+                KeyboardButton(t(user_id, "menu_language")),
+                KeyboardButton(t(user_id, "menu_help"))
+            ],
+            [
+                KeyboardButton(t(user_id, "menu_restart"))
+            ]
+        ],
+        resize_keyboard=True
+    )
+
+# =========================
+# Handlers
+# =========================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    if user_id not in user_langs:
-        user_langs[user_id] = 'ar'
-    
-    # تنظيف حالة المستخدم عند إعادة التشغيل
-    if user_id in processing_users:
-        processing_users.remove(user_id)
-        
-    await update.message.reply_text(
-        get_text(user_id, 'welcome'),
-        reply_markup=get_main_keyboard(user_id)
-    )
 
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    await update.message.reply_text(get_text(user_id, 'help'))
+    try:
+        set_lang(user_id, get_lang(user_id))
+        await update.message.reply_text(
+            t(user_id, "start"),
+            reply_markup=main_menu(user_id)
+        )
+        logging.info("User %s started bot", user_id)
+    except Exception as e:
+        logging.error("Start error: %s", e)
 
-async def change_language(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    keyboard = [
-        [InlineKeyboardButton("🇸🇦 العربية", callback_data='lang_ar'), InlineKeyboardButton("🇺🇸 English", callback_data='lang_en')],
-        [InlineKeyboardButton("🇹🇷 Türkçe", callback_data='lang_tr'), InlineKeyboardButton("🇷🇺 Русский", callback_data='lang_ru')],
-        [InlineKeyboardButton("🇩🇪 Deutsch", callback_data='lang_de'), InlineKeyboardButton("🇫🇷 Français", callback_data='lang_fr')]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text(get_text(user_id, 'choose_lang'), reply_markup=reply_markup)
-
-async def set_language(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    user_id = query.from_user.id
-    lang_code = query.data.split('_')[1]
-    user_langs[user_id] = lang_code
-    await query.answer()
-    
-    # تحديث الرسالة وتغيير الكيبورد فوراً
-    await query.edit_message_text(get_text(user_id, 'lang_updated'))
-    await context.bot.send_message(
-        chat_id=user_id,
-        text=get_text(user_id, 'welcome'),
-        reply_markup=get_main_keyboard(user_id)
-    )
-
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     text = update.message.text
-    if not text: return
 
-    # التحقق من الأزرار (بناءً على جميع اللغات لضمان الاستجابة)
-    is_lang_btn = any(text == LANGUAGES[l].get('language_btn') for l in LANGUAGES)
-    is_help_btn = any(text == LANGUAGES[l].get('help_btn') for l in LANGUAGES)
+    try:
+        actions = {
+            t(user_id, "menu_help"): send_help,
+            t(user_id, "menu_restart"): restart_bot,
+            t(user_id, "menu_language"): show_languages
+        }
 
-    if is_lang_btn:
-        await change_language(update, context)
-    elif is_help_btn:
-        await help_command(update, context)
-    elif re.match(r'https?://', text):
-        await process_video_link(update, context)
+        if text in actions:
+            await actions[text](update, context)
+        else:
+            await update.message.reply_text(
+                t(user_id, "start"),
+                reply_markup=main_menu(user_id)
+            )
+    except Exception as e:
+        logging.error("Handle text error: %s", e)
 
-async def process_video_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def send_help(update, context):
     user_id = update.effective_user.id
-    url = update.message.text
+    await update.message.reply_text(
+        t(user_id, "help"),
+        reply_markup=main_menu(user_id)
+    )
 
-    if user_id in processing_users:
-        return 
+async def restart_bot(update, context):
+    user_id = update.effective_user.id
+    await update.message.reply_text(
+        t(user_id, "start"),
+        reply_markup=main_menu(user_id)
+    )
 
-    processing_users.add(user_id)
-    status_msg = await update.message.reply_text(get_text(user_id, 'processing'))
+async def show_languages(update, context):
+    user_id = update.effective_user.id
 
-    try:
-        ydl_opts = {'quiet': True, 'no_warnings': True}
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = await asyncio.to_thread(ydl.extract_info, url, download=False)
-            
-        if not info: raise Exception("No info")
-
-        context.user_data['current_url'] = url
-        keyboard = [
-            [InlineKeyboardButton(get_text(user_id, 'quality_480p'), callback_data=f"dl_480_{user_id}")],
-            [InlineKeyboardButton(get_text(user_id, 'quality_720p'), callback_data=f"dl_720_{user_id}")],
-            [InlineKeyboardButton(get_text(user_id, 'quality_best'), callback_data=f"dl_best_{user_id}")],
-            [InlineKeyboardButton(get_text(user_id, 'quality_audio'), callback_data=f"dl_audio_{user_id}")]
+    keyboard = [
+        [
+            InlineKeyboardButton("🇸🇦 عربي", callback_data="ar"),
+            InlineKeyboardButton("🇺🇸 English", callback_data="en")
+        ],
+        [
+            InlineKeyboardButton("🇹🇷 Türkçe", callback_data="tr"),
+            InlineKeyboardButton("🇷🇺 Русский", callback_data="ru")
+        ],
+        [
+            InlineKeyboardButton("🇩🇪 Deutsch", callback_data="de"),
+            InlineKeyboardButton("🇫🇷 Français", callback_data="fr")
         ]
-        await status_msg.edit_text(get_text(user_id, 'choose_quality'), reply_markup=InlineKeyboardMarkup(keyboard))
-        
-    except Exception as e:
-        logger.error(f"Error: {e}")
-        await status_msg.edit_text(get_text(user_id, 'error_invalid_url'))
-        if user_id in processing_users: processing_users.remove(user_id)
+    ]
 
-async def download_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        t(user_id, "choose_language"),
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+async def change_language(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    user_id = query.from_user.id
-    data = query.data.split('_')
-    
-    if int(data[2]) != user_id:
-        await query.answer("Error!", show_alert=True)
-        return
-
-    quality = data[1]
-    url = context.user_data.get('current_url')
-
     await query.answer()
-    await query.edit_message_text(get_text(user_id, 'downloading'))
 
-    os.makedirs(DOWNLOAD_DIR, exist_ok=True)
-    file_id = f"{user_id}_{quality}"
-    download_path_tmpl = os.path.join(DOWNLOAD_DIR, f"{file_id}.%(ext)s")
-
-    # إعدادات yt-dlp الذكية
-    format_opt = f"bestvideo[height<={MAX_HEIGHT}]+bestaudio/best[height<={MAX_HEIGHT}]"
-    if quality == "480": format_opt = "bestvideo[height<=480]+bestaudio/best[height<=480]"
-    elif quality == "audio": format_opt = "bestaudio/best"
-
-    ydl_opts = {
-        'format': format_opt,
-        'outtmpl': download_path_tmpl,
-        'max_filesize': MAX_SIZE_MB * 1024 * 1024,
-        'quiet': True,
-        'merge_output_format': 'mp4' if quality != 'audio' else None,
-        'postprocessors': [{'key': 'FFmpegExtractAudio','preferredcodec': 'mp3','preferredquality': '192'}] if quality == 'audio' else []
-    }
-
-    actual_file_path = None
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = await asyncio.to_thread(ydl.extract_info, url, download=True)
-            actual_file_path = ydl.prepare_filename(info)
-            if quality == 'audio': actual_file_path = os.path.splitext(actual_file_path)[0] + ".mp3"
-            
-            # التحقق من وجود الملف والحجم
-            if not os.path.exists(actual_file_path):
-                for f in os.listdir(DOWNLOAD_DIR):
-                    if f.startswith(file_id):
-                        actual_file_path = os.path.join(DOWNLOAD_DIR, f)
-                        break
+        set_lang(query.from_user.id, query.data)
 
-            file_size = os.path.getsize(actual_file_path) / (1024 * 1024)
-            if file_size > MAX_SIZE_MB:
-                await query.edit_message_text(get_text(user_id, 'error_size', size=round(file_size, 1)))
-                return
+        await query.edit_message_text(
+            t(query.from_user.id, "language_changed")
+        )
 
-            await query.edit_message_text(get_text(user_id, 'sending'))
-            with open(actual_file_path, 'rb') as f:
-                if quality == "audio": await context.bot.send_audio(chat_id=user_id, audio=f, caption=info.get('title', ''))
-                else: await context.bot.send_video(chat_id=user_id, video=f, caption=info.get('title', ''), supports_streaming=True)
-            
-            await query.message.delete()
+        await context.bot.send_message(
+            chat_id=query.message.chat_id,
+            text=t(query.from_user.id, "start"),
+            reply_markup=main_menu(query.from_user.id)
+        )
+
+        logging.info("User %s changed language to %s",
+                     query.from_user.id, query.data)
 
     except Exception as e:
-        logger.error(f"Error: {e}")
-        await query.edit_message_text(get_text(user_id, 'error_generic'))
-    finally:
-        if actual_file_path and os.path.exists(actual_file_path): os.remove(actual_file_path)
-        for f in os.listdir(DOWNLOAD_DIR):
-            if f.startswith(file_id):
-                try: os.remove(os.path.join(DOWNLOAD_DIR, f))
-                except: pass
-        if user_id in processing_users: processing_users.remove(user_id)
+        logging.error("Language change error: %s", e)
 
+# =========================
+# Main
+# =========================
 def main():
-    # تأكد من وضع التوكن هنا أو استخدامه كمتغير بيئة
-    token = os.environ.get("TELEGRAM_TOKEN") or "8373058261:AAG7_Fo2P_6kv6hHRp5xcl4QghDRpX5TryA"
-    
-    if os.path.exists(DOWNLOAD_DIR): shutil.rmtree(DOWNLOAD_DIR)
-    os.makedirs(DOWNLOAD_DIR)
+    app = Application.builder().token(TOKEN).build()
 
-    application = Application.builder().token(token).build()
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CallbackQueryHandler(set_language, pattern='^lang_'))
-    application.add_handler(CallbackQueryHandler(download_callback, pattern='^dl_'))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+    app.add_handler(CallbackQueryHandler(change_language))
 
-    print("Bot is running...")
-    application.run_polling()
+    logging.info("Bot is running...")
+    app.run_polling()
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
