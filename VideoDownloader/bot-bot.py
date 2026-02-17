@@ -19,25 +19,29 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+# ---------------------------------------------------------
+# ضع التوكن الخاص بك هنا
+# ---------------------------------------------------------
+TOKEN = "ضع_التوكن_هنا" 
+# ---------------------------------------------------------
 
 DOWNLOAD_DIR = "downloads"
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
-# خيارات yt-dlp المحسنة للسرعة والجودة
 def get_ytdl_options(mode, filename_template):
     if mode == "video":
         return {
-            # اختيار أفضل جودة mp4 لضمان التوافق مع تيليجرام
-            'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+            # نطلب أفضل فيديو mp4 وأفضل صوت m4a لضمان التوافق التام مع مشغل تيليجرام
+            'format': 'bestvideo[vcodec^=avc1]+bestaudio[acodec^=mp4a]/best[ext=mp4]/best',
             'outtmpl': filename_template,
             'noplaylist': True,
             'quiet': True,
             'no_warnings': True,
-            # تحسين السرعة عبر التحميل المتعدد (Multi-threading)
-            'external_downloader': 'aria2c', 
-            'external_downloader_args': ['-x', '16', '-s', '16', '-k', '1M'],
             'merge_output_format': 'mp4',
+            # استخدام ffmpeg لضمان دمج صحيح للصورة والصوت
+            'postprocessor_args': {
+                'ffmpeg': ['-c:v', 'copy', '-c:a', 'copy']
+            },
         }
     else: # mode == "audio"
         return {
@@ -62,11 +66,11 @@ def t(user_id, key):
         "audio": {"ar": "صوت 🎵", "en": "Audio 🎵"},
         "loading": {"ar": "جاري التحميل والمعالجة... ⏳", "en": "Downloading and processing... ⏳"},
         "restart_msg": {"ar": "🔄 تم إعادة تشغيل البوت بنجاح.", "en": "🔄 Bot restarted successfully."},
-        "error_msg": {"ar": "❌ عذراً، حدث خطأ أثناء التحميل. قد يكون الفيديو محمي أو الرابط غير مدعوم.", "en": "❌ Sorry, an error occurred. The video might be protected or the link is unsupported."},
-        "file_too_large": {"ar": "❌ الملف كبير جداً (أكثر من 50MB).", "en": "❌ File is too large (over 50MB)."},
+        "error_msg": {"ar": "❌ عذراً، حدث خطأ. تأكد من الرابط أو حاول مرة أخرى لاحقاً.", "en": "❌ Error. Check the link or try again later."},
+        "file_too_large": {"ar": "❌ الملف كبير جداً (أكثر من 50MB).", "en": "❌ File too large (>50MB)."},
         "help_text": {
-            "ar": "📖 أرسل رابط فيديو من يوتيوب، إنستغرام، أو تيك توك وسأقوم بتحميله بأفضل جودة ممكنة.",
-            "en": "📖 Send a link from YouTube, Instagram, or TikTok and I will download it in the best quality."
+            "ar": "📖 أرسل رابط فيديو وسأقوم بتحميله لك بأعلى جودة متوافقة مع تيليجرام.",
+            "en": "📖 Send a video link and I will download it in the best Telegram-compatible quality."
         }
     }
     return texts.get(key, {}).get(lang, "")
@@ -74,7 +78,7 @@ def t(user_id, key):
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [[KeyboardButton("اللغة 🌐"), KeyboardButton("المساعدة 📖")], [KeyboardButton("إعادة التشغيل 🔄")]]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-    await update.message.reply_text("أهلاً بك في بوت التحميل الاحترافي! أرسل الرابط للبدء.", reply_markup=reply_markup)
+    await update.message.reply_text("أهلاً بك! أرسل الرابط للتحميل فوراً.", reply_markup=reply_markup)
 
 async def download_and_send(chat, url, mode, user_id):
     loading_msg = await chat.send_message(t(user_id, "loading"))
@@ -88,14 +92,12 @@ async def download_and_send(chat, url, mode, user_id):
         def download():
             with yt_dlp.YoutubeDL(options) as ydl:
                 info = ydl.extract_info(url, download=True)
-                # استخراج البيانات التقنية لتجنب مشاكل الأبعاد (الزووم)
                 return {
                     'filename': ydl.prepare_filename(info),
                     'title': info.get("title", "video"),
                     'width': info.get("width"),
                     'height': info.get("height"),
-                    'duration': info.get("duration"),
-                    'thumbnail': info.get("thumbnail")
+                    'duration': info.get("duration")
                 }
 
         loop = asyncio.get_event_loop()
@@ -105,7 +107,19 @@ async def download_and_send(chat, url, mode, user_id):
         if mode == "audio":
             actual_filename = os.path.splitext(filename)[0] + ".mp3"
         else:
-            actual_filename = filename
+            # التأكد من الامتداد الصحيح بعد الدمج
+            if not filename.endswith(".mp4"):
+                actual_filename = os.path.splitext(filename)[0] + ".mp4"
+            else:
+                actual_filename = filename
+
+        if not os.path.exists(actual_filename):
+            # محاولة البحث عن الملف إذا تغير امتداده أثناء الدمج
+            base = os.path.splitext(filename)[0]
+            for ext in ['.mp4', '.mkv', '.webm']:
+                if os.path.exists(base + ext):
+                    actual_filename = base + ext
+                    break
 
         file_size = os.path.getsize(actual_filename) / (1024 * 1024)
         if file_size > 50:
@@ -115,7 +129,6 @@ async def download_and_send(chat, url, mode, user_id):
                 if mode == "audio":
                     await chat.send_audio(audio=f, caption=f"🎵 {result['title']}")
                 else:
-                    # إرسال العرض والارتفاع والمدة يمنع تيليجرام من عمل زووم تلقائي ويحافظ على الأبعاد الأصلية
                     await chat.send_video(
                         video=f, 
                         caption=f"🎬 {result['title']}", 
@@ -168,12 +181,14 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         asyncio.create_task(download_and_send(update.effective_chat, url, data, user_id))
 
 def main():
-    if not TOKEN: return print("❌ TOKEN missing!")
+    if TOKEN == "8373058261:AAG7_Fo2P_6kv6hHRp5xcl4QghDRpX5TryA":
+        print("❌ خطأ: يرجى وضع التوكن داخل الكود.")
+        return
     app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_input))
     app.add_handler(CallbackQueryHandler(button_handler))
-    print("🚀 البوت الاحترافي يعمل الآن...")
+    print("🚀 البوت يعمل الآن... اضغط Ctrl+C للإيقاف")
     app.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
