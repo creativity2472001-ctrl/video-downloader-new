@@ -16,9 +16,7 @@ from telegram.ext import (
 
 # --- إعدادات البوت ---
 TOKEN = "8373058261:AAG7_Fo2P_6kv6hHRp5xcl4QghDRpX5TryA"
-USE_WEBHOOK = False  # اجعلها True عند التشغيل على سيرفر يدعم Webhook
-WEBHOOK_URL = "https://your-domain.com/path"
-PORT = int(os.environ.get('PORT', 8443))
+MAX_SIZE_MB = 80
 # --------------------
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
@@ -27,72 +25,143 @@ logger = logging.getLogger(__name__)
 DOWNLOAD_DIR = "downloads"
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
-# تحميل اللغات من ملف JSON
 def load_languages():
     try:
         with open('languages.json', 'r', encoding='utf-8') as f:
             return json.load(f)
-    except Exception as e:
-        logger.error(f"Error loading languages.json: {e}")
-        return {}
+    except: return {}
 
 LANGS = load_languages()
-user_prefs = {}  # {user_id: {'lang': 'ar', 'last_request': 0, 'is_processing': False}}
+user_prefs = {}
 
 def get_text(user_id, key, *args):
-    prefs = user_prefs.get(user_id, {'lang': 'ar'})
-    lang = prefs.get('lang', 'ar')
-    text = LANGS.get(lang, LANGS['en']).get(key, "")
-    if args:
-        return text.format(*args)
-    return text
+    lang = user_prefs.get(user_id, {}).get('lang', 'ar')
+    text = LANGS.get(lang, LANGS.get('en', {})).get(key, "")
+    return text.format(*args) if args else text
 
-# دالة تحديث شريط التقدم
 def progress_hook(d, context, chat_id, message_id, user_id):
     if d['status'] == 'downloading':
         p = d.get('_percent_str', '0%').replace('%', '')
         try:
             p_float = float(p)
-            # تحديث الرسالة كل 20% لتجنب حظر تيليجرام (Flood)
             last_p = context.user_data.get('last_progress', 0)
-            if p_float - last_p >= 20 or p_float >= 99:
+            if p_float - last_p >= 25 or p_float >= 99:
                 context.user_data['last_progress'] = p_float
                 loop = asyncio.get_event_loop()
                 loop.create_task(context.bot.edit_message_text(
-                    chat_id=chat_id,
-                    message_id=message_id,
+                    chat_id=chat_id, message_id=message_id,
                     text=get_text(user_id, "progress", p.strip())
                 ))
         except: pass
 
+async def worker(user_id, context):
+    queue = user_prefs[user_id]['queue']
+    while True:
+        task = await queue.get()
+        try:
+            await download_and_send_task(task, context)
+        except Exception as e:
+            logger.error(f"Worker Task Error: {e}")
+        finally:
+            queue.task_done()
+
+async def download_and_send_task(task, context):
+    chat_id, user_id, url, mode, quality = task['chat_id'], task['user_id'], task['url'], task['mode'], task['quality']
+    msg = await context.bot.send_message(chat_id=chat_id, text=get_text(user_id, "wait"))
+    actual_filename = None
+    
+    try:
+        unique_name = f"{DOWNLOAD_DIR}/{user_id}_{int(time.time())}"
+        ydl_opts = {
+            'outtmpl': f"{unique_name}.%(ext)s",
+            'quiet': True, 'noplaylist': True,
+            'progress_hooks': [lambda d: progress_hook(d, context, chat_id, msg.message_id, user_id)],
+        }
+        
+        if mode == "video":
+            if quality == "auto":
+                # اختيار أفضل جودة متاحة بشرط ألا تتجاوز 80MB
+                ydl_opts.update({
+                    'format': f'bestvideo[ext=mp4][filesize<{MAX_SIZE_MB}M]+bestaudio[ext=m4a]/best[ext=mp4][filesize<{MAX_SIZE_MB}M]/best',
+                })
+            else:
+                height = 720 if quality == "720" else 480
+                ydl_opts.update({
+                    'format': f'bestvideo[height<={height}][ext=mp4]+bestaudio[ext=m4a]/best[height<={height}][ext=mp4]/best',
+                })
+            ydl_opts.update({
+                'merge_output_format': 'mp4',
+                'postprocessor_args': {'ffmpeg': ['-c:v', 'libx264', '-preset', 'veryfast', '-c:a', 'aac']}
+            })
+        else:
+            ydl_opts.update({
+                'format': 'bestaudio/best',
+                'postprocessors': [{'key': 'FFmpegExtractAudio','preferredcodec': 'mp3','preferredquality': '192'}]
+            })
+
+        def download():
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=True)
+                return ydl.prepare_filename(info), info.get('title', 'video'), info.get('width'), info.get('height'), info.get('duration')
+
+        loop = asyncio.get_event_loop()
+        filename, title, w, h, d = await loop.run_in_executor(None, download)
+        actual_filename = filename
+        if mode == "audio" and not filename.endswith(".mp3"): actual_filename = os.path.splitext(filename)[0] + ".mp3"
+        
+        with open(actual_filename, "rb") as f:
+            if mode == "audio": await context.bot.send_audio(chat_id=chat_id, audio=f, caption=f"🎵 {title}")
+            else: await context.bot.send_video(chat_id=chat_id, video=f, caption=f"🎬 {title}", width=w, height=h, duration=d, supports_streaming=True)
+        await msg.delete()
+            
+    except Exception as e:
+        logger.error(f"Download Error: {e}")
+        try:
+            await msg.edit_text(get_text(user_id, "error"))
+        except: pass
+    finally:
+        if actual_filename and os.path.exists(actual_filename):
+            try: os.remove(actual_filename)
+            except: pass
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    if user_id not in user_prefs: user_prefs[user_id] = {'lang': 'ar', 'last_request': 0, 'is_processing': False}
+    if user_id not in user_prefs:
+        user_prefs[user_id] = {'lang': 'ar', 'queue': asyncio.Queue()}
+        asyncio.create_task(worker(user_id, context))
     keyboard = [[KeyboardButton("اللغة 🌐"), KeyboardButton("المساعدة 📖")]]
     await update.message.reply_text(get_text(user_id, "start"), reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True))
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text, user_id = update.message.text, update.effective_user.id
-    if user_id not in user_prefs: user_prefs[user_id] = {'lang': 'ar', 'last_request': 0, 'is_processing': False}
+    if user_id not in user_prefs:
+        user_prefs[user_id] = {'lang': 'ar', 'queue': asyncio.Queue()}
+        asyncio.create_task(worker(user_id, context))
 
     if text == "المساعدة 📖":
         await update.message.reply_text(get_text(user_id, "help"))
     elif text == "اللغة 🌐":
-        keyboard = [
-            [InlineKeyboardButton("🇸🇦 عربي", callback_data="set_ar"), InlineKeyboardButton("🇺🇸 English", callback_data="set_en")],
-            [InlineKeyboardButton("🇷🇺 Русский", callback_data="set_ru"), InlineKeyboardButton("🇩🇪 Deutsch", callback_data="set_de")]
-        ]
+        keyboard = [[InlineKeyboardButton("🇸🇦 عربي", callback_data="set_ar"), InlineKeyboardButton("🇺🇸 English", callback_data="set_en")],
+                    [InlineKeyboardButton("🇷🇺 Русский", callback_data="set_ru"), InlineKeyboardButton("🇩🇪 Deutsch", callback_data="set_de")]]
         await update.message.reply_text("Choose language:", reply_markup=InlineKeyboardMarkup(keyboard))
     elif "http" in text:
-        # نظام منع السبام
-        current_time = time.time()
-        if user_prefs[user_id]['is_processing'] or (current_time - user_prefs[user_id]['last_request'] < 5):
-            await update.message.reply_text(get_text(user_id, "spam"))
-            return
+        # فحص الحجم قبل التحميل
+        try:
+            with yt_dlp.YoutubeDL({'quiet': True, 'noplaylist': True}) as ydl:
+                info = ydl.extract_info(text, download=False)
+                size = info.get('filesize') or info.get('filesize_approx')
+                if size and size > MAX_SIZE_MB * 1024 * 1024:
+                    await update.message.reply_text(get_text(user_id, "too_large", round(size/(1024*1024), 1)))
+                    return
+        except: pass
 
         context.user_data["url"] = text
-        keyboard = [[InlineKeyboardButton(get_text(user_id, "video"), callback_data="dl_video"),
-                     InlineKeyboardButton(get_text(user_id, "audio"), callback_data="dl_audio")]]
+        keyboard = [
+            [InlineKeyboardButton(get_text(user_id, "video_480"), callback_data="dl_video_480"),
+             InlineKeyboardButton(get_text(user_id, "video_720"), callback_data="dl_video_720")],
+            [InlineKeyboardButton(get_text(user_id, "video_auto"), callback_data="dl_video_auto")],
+            [InlineKeyboardButton(get_text(user_id, "audio"), callback_data="dl_audio")]
+        ]
         await update.message.reply_text(get_text(user_id, "choose"), reply_markup=InlineKeyboardMarkup(keyboard))
 
 async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -103,78 +172,24 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data.startswith("set_"):
         user_prefs[user_id]['lang'] = data.split("_")[1]
         await query.edit_message_text(get_text(user_id, "lang_done"))
-    
     elif data.startswith("dl_"):
-        mode = data.split("_")[1]
+        parts = data.split("_")
+        mode = parts[1]
+        quality = parts[2] if len(parts) > 2 else "auto"
         url = context.user_data.get("url")
         if not url: return
         
-        user_prefs[user_id]['is_processing'] = True
-        user_prefs[user_id]['last_request'] = time.time()
-        context.user_data['last_progress'] = 0
-        
         await query.message.delete()
-        msg = await context.bot.send_message(chat_id=query.message.chat_id, text=get_text(user_id, "wait"))
-        
-        try:
-            unique_name = f"{DOWNLOAD_DIR}/{user_id}_{int(time.time())}"
-            ydl_opts = {
-                'outtmpl': f"{unique_name}.%(ext)s",
-                'quiet': True, 'noplaylist': True,
-                'progress_hooks': [lambda d: progress_hook(d, context, query.message.chat_id, msg.message_id, user_id)],
-            }
-            
-            if mode == "video":
-                ydl_opts.update({
-                    'format': 'bestvideo[ext=mp4][filesize<50M]+bestaudio[ext=m4a]/best[ext=mp4][filesize<50M]/best',
-                    'merge_output_format': 'mp4',
-                    'postprocessor_args': {'ffmpeg': ['-c:v', 'libx264', '-preset', 'veryfast', '-c:a', 'aac']}
-                })
-            else:
-                ydl_opts.update({
-                    'format': 'bestaudio/best',
-                    'postprocessors': [{'key': 'FFmpegExtractAudio','preferredcodec': 'mp3','preferredquality': '192'}]
-                })
-
-            def download():
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    info = ydl.extract_info(url, download=True)
-                    return ydl.prepare_filename(info), info.get('title', 'video'), info.get('width'), info.get('height'), info.get('duration')
-
-            loop = asyncio.get_event_loop()
-            filename, title, w, h, d = await loop.run_in_executor(None, download)
-            
-            final_file = filename
-            if mode == "audio" and not filename.endswith(".mp3"): final_file = os.path.splitext(filename)[0] + ".mp3"
-            
-            if os.path.getsize(final_file) > 50 * 1024 * 1024:
-                await msg.edit_text(get_text(user_id, "too_large"))
-            else:
-                with open(final_file, "rb") as f:
-                    if mode == "audio": await context.bot.send_audio(chat_id=query.message.chat_id, audio=f, caption=f"🎵 {title}")
-                    else: await context.bot.send_video(chat_id=query.message.chat_id, video=f, caption=f"🎬 {title}", width=w, height=h, duration=d, supports_streaming=True)
-                await msg.delete()
-            
-            if os.path.exists(final_file): os.remove(final_file)
-            
-        except Exception as e:
-            logger.error(f"Error: {e}")
-            await msg.edit_text(get_text(user_id, "error"))
-        finally:
-            user_prefs[user_id]['is_processing'] = False
+        await user_prefs[user_id]['queue'].put({'chat_id': query.message.chat_id, 'user_id': user_id, 'url': url, 'mode': mode, 'quality': quality})
 
 def main():
-    if TOKEN == "ضع_التوكن_هنا": return print("❌ يرجى وضع التوكن!")
+    if TOKEN == "ضع_التوكن_هنا": return
     app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_handler(CallbackQueryHandler(button_click))
-    
-    if USE_WEBHOOK:
-        app.run_webhook(listen="0.0.0.0", port=PORT, url_path=TOKEN, webhook_url=f"{WEBHOOK_URL}/{TOKEN}")
-    else:
-        print("🚀 البوت يعمل بنظام Polling...")
-        app.run_polling()
+    print("🚀 البوت الاحترافي النهائي يعمل الآن...")
+    app.run_polling()
 
 if __name__ == "__main__":
     main()
