@@ -19,7 +19,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-TOKEN = os.getenv("8373058261:AAG7_Fo2P_6kv6hHRp5xcl4QghDRpX5TryA")
+TOKEN = os.getenv("8373058261:AAG7_Fo2P_6kv6hHRp5xcl4QghDRpX5TryA", "")
 
 DOWNLOAD_DIR = "downloads"
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
