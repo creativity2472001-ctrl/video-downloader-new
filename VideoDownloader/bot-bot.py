@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------
 # ضع التوكن الخاص بك هنا
 # ---------------------------------------------------------
-TOKEN = "ضع_التوكن_هنا" 
+TOKEN = "8373058261:AAG7_Fo2P_6kv6hHRp5xcl4QghDRpX5TryA" 
 # ---------------------------------------------------------
 
 DOWNLOAD_DIR = "downloads"
@@ -181,7 +181,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         asyncio.create_task(download_and_send(update.effective_chat, url, data, user_id))
 
 def main():
-    if TOKEN == "8373058261:AAG7_Fo2P_6kv6hHRp5xcl4QghDRpX5TryA":
+    if TOKEN == "ضع_التوكن_هنا":
         print("❌ خطأ: يرجى وضع التوكن داخل الكود.")
         return
     app = Application.builder().token(TOKEN).build()
