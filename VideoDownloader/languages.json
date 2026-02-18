@@ -16,23 +16,5 @@
         "invalid_link": "❌ Invalid link",
         "error_download": "❌ Download error",
         "queue_restarted": "🔄 Restarted"
-    },
-    "tr": {
-        "welcome": "🎬 İndirme Botuna Hoş Geldiniz!\nBir video bağlantısı gönderin, indireyim.",
-        "help": "📖 Talimatlar:\n1. Bağlantı gönder\n2. Biraz bekle\n3. Videoyu al",
-        "choose_lang": "🌐 Dil seçin:",
-        "lang_set": "✅ Dil değiştirildi",
-        "invalid_link": "❌ Geçersiz bağlantı",
-        "error_download": "❌ İndirme hatası",
-        "queue_restarted": "🔄 Yeniden başlatıldı"
-    },
-    "ru": {
-        "welcome": "🎬 Добро пожаловать в бот загрузки!\nОтправьте ссылку на видео, я скачаю.",
-        "help": "📖 Инструкция:\n1. Отправьте ссылку\n2. Подождите\n3. Получите видео",
-        "choose_lang": "🌐 Выберите язык:",
-        "lang_set": "✅ Язык изменён",
-        "invalid_link": "❌ Неверная ссылка",
-        "error_download": "❌ Ошибка загрузки",
-        "queue_restarted": "🔄 Перезапущено"
     }
 }
