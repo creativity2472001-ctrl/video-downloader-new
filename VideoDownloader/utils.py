@@ -1,4 +1,3 @@
-
 import os
 import yt_dlp
 import asyncio
@@ -15,7 +14,18 @@ def get_text(key, lang_code, **kwargs):
         text = text.format(**kwargs)
     return text
 
-async def download_media(url, format_type, user_id, update, context, lang_code):
+async def get_video_info(url):
+    """الحصول على معلومات الفيديو"""
+    ydl_opts = {'quiet': True, 'noplaylist': True}
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = await asyncio.to_thread(ydl.extract_info, url, download=False)
+            return info
+    except:
+        return None
+
+async def download_media(url, quality_type, user_id, update, context, lang_code):
+    """تحميل الوسائط بالجودة المطلوبة"""
     import time
     timestamp = int(time.time())
     out_tmpl = f"downloads/{user_id}_{timestamp}.%(ext)s"
@@ -23,18 +33,49 @@ async def download_media(url, format_type, user_id, update, context, lang_code):
     if not os.path.exists('downloads'):
         os.makedirs('downloads')
 
-    # إعدادات yt-dlp مبسطة
-    ydl_opts = {
-        'outtmpl': out_tmpl,
-        'noplaylist': True,
-        'quiet': True,
-        'format': 'best',
-    }
+    # إعدادات التحميل حسب النوع
+    if quality_type == 'audio':
+        ydl_opts = {
+            'outtmpl': out_tmpl,
+            'noplaylist': True,
+            'quiet': True,
+            'format': 'bestaudio/best',
+            'postprocessors': [{
+                'key': 'FFmpegExtractAudio',
+                'preferredcodec': 'mp3',
+                'preferredquality': '192',
+            }],
+        }
+    elif quality_type == '480p':
+        ydl_opts = {
+            'outtmpl': out_tmpl,
+            'noplaylist': True,
+            'quiet': True,
+            'format': 'bestvideo[height<=480]+bestaudio/best[height<=480]/best[height<=480]',
+        }
+    elif quality_type == '720p':
+        ydl_opts = {
+            'outtmpl': out_tmpl,
+            'noplaylist': True,
+            'quiet': True,
+            'format': 'bestvideo[height<=720]+bestaudio/best[height<=720]/best[height<=720]',
+        }
+    else:  # best quality
+        ydl_opts = {
+            'outtmpl': out_tmpl,
+            'noplaylist': True,
+            'quiet': True,
+            'format': 'bestvideo+bestaudio/best',
+        }
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = await asyncio.to_thread(ydl.extract_info, url, download=True)
             filename = ydl.prepare_filename(info)
+            
+            if quality_type == 'audio':
+                filename = os.path.splitext(filename)[0] + '.mp3'
+            
             return filename
     except Exception as e:
         print(f"Download error: {e}")
