@@ -6,14 +6,13 @@ from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, Cal
 from utils import get_text, download_media
 
 # إعداد التسجيل
-logging.basicConfig(format='%(asmitime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
 
 # تخزين لغة المستخدم
 user_lang = {}
-
-async def get_user_lang(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    return user_lang.get(user_id, 'ar')
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -74,14 +73,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # معالجة الروابط
     if text.startswith('http'):
-        status_msg = await update.message.reply_text("🔍 جاري التحقق من الرابط...")
+        status_msg = await update.message.reply_text("🔍 جاري التحميل...")
         
         try:
-            # تحميل مباشر بدون طابور
             file_path = await download_media(text, 'best', user_id, update, context, lang)
             
             if file_path and os.path.exists(file_path):
-                await status_msg.edit_text("✅ تم التحميل بنجاح! جاري الإرسال...")
+                await status_msg.edit_text("✅ تم التحميل! جاري الإرسال...")
                 
                 with open(file_path, 'rb') as f:
                     await context.bot.send_video(chat_id=user_id, video=f)
@@ -109,19 +107,24 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(get_text('lang_set', new_lang))
 
 if __name__ == '__main__':
-    TOKEN = os.getenv('BOT_TOKEN', 'YOUR_TELEGRAM_BOT_TOKEN')
+    # التوكن من متغير البيئة (آمن لـ GitHub)
+    TOKEN = os.environ.get('BOT_TOKEN')
     
-    if TOKEN == 'YOUR_TELEGRAM_BOT_TOKEN':
-        print("❌ خطأ: يرجى وضع التوكن في متغير البيئة BOT_TOKEN")
-    else:
-        app = ApplicationBuilder().token(TOKEN).build()
-        
-        app.add_handler(CommandHandler("start", start))
-        app.add_handler(CommandHandler("help", help_command))
-        app.add_handler(CommandHandler("language", language_command))
-        app.add_handler(CommandHandler("restart", restart_command))
-        app.add_handler(CallbackQueryHandler(button_handler))
-        app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-        
-        print("✅ البوت يعمل الآن...")
-        app.run_polling()
+    if not TOKEN:
+        print("❌ خطأ: لم يتم العثور على التوكن!")
+        print("📝 يرجى وضع التوكن في متغير البيئة BOT_TOKEN")
+        print("👉 على GitHub: Settings → Secrets and variables → Actions → New repository secret")
+        print("👉 Name: BOT_TOKEN, Value: 8373058261:AAG7_Fo2P_6kv6hHRp5xcl4QghDRpX5TryA")
+        exit(1)
+    
+    app = ApplicationBuilder().token(TOKEN.strip()).build()
+    
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("help", help_command))
+    app.add_handler(CommandHandler("language", language_command))
+    app.add_handler(CommandHandler("restart", restart_command))
+    app.add_handler(CallbackQueryHandler(button_handler))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    
+    print("✅ البوت يعمل الآن...")
+    app.run_polling()
