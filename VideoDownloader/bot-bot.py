@@ -39,9 +39,7 @@ async def language_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     keyboard = [
         [InlineKeyboardButton("🇸🇦 عربي", callback_data='lang_ar'),
-         InlineKeyboardButton("🇺🇸 English", callback_data='lang_en')],
-        [InlineKeyboardButton("🇹🇷 Türkçe", callback_data='lang_tr'),
-         InlineKeyboardButton("🇷🇺 Русский", callback_data='lang_ru')]
+         InlineKeyboardButton("🇺🇸 English", callback_data='lang_en')]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text(
@@ -77,29 +75,24 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # معالجة الروابط
     if text.startswith('http'):
-        status_msg = await update.message.reply_text("🔍 جاري التحميل...")
+        status_msg = await update.message.reply_text("⏳ جاري التحميل...")
         
-        try:
-            # حفظ الرابط في بيانات المستخدم
-            context.user_data['url'] = text
-            
-            # عرض أزرار اختيار الجودة
-            keyboard = [
-                [InlineKeyboardButton("480p 🎬", callback_data='quality_480p'),
-                 InlineKeyboardButton("720p 🎬", callback_data='quality_720p')],
-                [InlineKeyboardButton("أفضل جودة ✨", callback_data='quality_best'),
-                 InlineKeyboardButton("صوت 🎵", callback_data='quality_audio')]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            
-            await status_msg.edit_text(
-                "🎯 اختر جودة التحميل:",
-                reply_markup=reply_markup
-            )
-            
-        except Exception as e:
-            logging.error(f"Error: {e}")
-            await status_msg.edit_text("❌ حدث خطأ في التحميل")
+        # حفظ الرابط في بيانات المستخدم
+        context.user_data['url'] = text
+        
+        # عرض أزرار اختيار الجودة
+        keyboard = [
+            [InlineKeyboardButton("480p 🎬", callback_data='quality_480p'),
+             InlineKeyboardButton("720p 🎬", callback_data='quality_720p')],
+            [InlineKeyboardButton("أفضل جودة ✨", callback_data='quality_best'),
+             InlineKeyboardButton("صوت 🎵", callback_data='quality_audio')]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await status_msg.edit_text(
+            "🎯 اختر جودة التحميل:",
+            reply_markup=reply_markup
+        )
     else:
         await update.message.reply_text("❌ رابط غير صالح")
 
@@ -133,8 +126,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             file_path = await download_media(url, quality_type, user_id)
             
             if file_path and os.path.exists(file_path):
-                await query.edit_message_text("📤 جاري الإرسال...")
-                
                 with open(file_path, 'rb') as f:
                     if is_audio:
                         await context.bot.send_audio(chat_id=user_id, audio=f)
