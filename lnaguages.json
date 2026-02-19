@@ -1,0 +1,30 @@
+{
+    "ar": {
+        "welcome": "🎬 مرحباً بك في بوت التحميل!\nأرسل رابط فيديو وسأقوم بتحميله لك.",
+        "help": "📖 **المساعدة**\n\nلتحميل الفيديو:\n• أرسل الرابط\n• اختر الجودة\n• انتظر التحميل",
+        "choose_lang": "🌐 اختر لغتك:",
+        "lang_set": "✅ تم تغيير اللغة",
+        "queue_restarted": "🔄 تم إعادة التشغيل"
+    },
+    "en": {
+        "welcome": "🎬 Welcome to Download Bot!\nSend a video link and I'll download it.",
+        "help": "📖 **Help**\n\nTo download video:\n• Send the link\n• Choose quality\n• Wait for download",
+        "choose_lang": "🌐 Choose your language:",
+        "lang_set": "✅ Language changed",
+        "queue_restarted": "🔄 Restarted"
+    },
+    "tr": {
+        "welcome": "🎬 İndirme Botuna Hoş Geldiniz!\nBir video bağlantısı gönderin, indireyim.",
+        "help": "📖 **Yardım**\n\nVideo indirmek için:\n• Bağlantı gönderin\n• Kalite seçin\n• Bekleyin",
+        "choose_lang": "🌐 Dil seçin:",
+        "lang_set": "✅ Dil değiştirildi",
+        "queue_restarted": "🔄 Yeniden başlatıldı"
+    },
+    "ru": {
+        "welcome": "🎬 Добро пожаловать в бот загрузки!\nОтправьте ссылку на видео, я скачаю.",
+        "help": "📖 **Помощь**\n\nЧтобы скачать видео:\n• Отправьте ссылку\n• Выберите качество\n• Подождите",
+        "choose_lang": "🌐 Выберите язык:",
+        "lang_set": "✅ Язык изменён",
+        "queue_restarted": "🔄 Перезапущено"
+    }
+}
