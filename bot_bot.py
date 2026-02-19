@@ -312,7 +312,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         url = context.user_data.get('download_url')
         if not url:
-            # await query.edit_message_text(get_text('error_download', lang))
             await query.delete()
             return
         
@@ -332,11 +331,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     
                     os.remove(file_path)
                     await query.delete()
-                # else:
-                #     await query.edit_message_text(get_text('error_download', lang))
             except Exception as e:
                 logger.error(f"Download error: {e}")
-                # await query.edit_message_text(get_text('error_download', lang))
         else:
             # طلب دفع بالنجوم
             title = get_text('download_title', lang) if quality != 'audio' else get_text('audio_title', lang)
@@ -374,7 +370,6 @@ async def successful_payment_handler(update: Update, context: ContextTypes.DEFAU
     
     url = context.user_data.get('download_url')
     if not url:
-        # await update.message.reply_text(get_text('error_download', lang))
         return
     
     status_msg = await update.message.reply_text(get_text('downloading', lang))
@@ -391,11 +386,8 @@ async def successful_payment_handler(update: Update, context: ContextTypes.DEFAU
             
             os.remove(file_path)
             await status_msg.delete()
-        # else:
-        #     await status_msg.edit_text(get_text('error_download', lang))
     except Exception as e:
         logger.error(f"Download error: {e}")
-        # await status_msg.edit_text(get_text('error_download', lang))
 
 # =========================
 # معالج التحقق قبل الدفع
