@@ -3,12 +3,10 @@ import yt_dlp
 import json
 import asyncio
 
-# تحميل ملف اللغات
 with open('languages.json', 'r', encoding='utf-8') as f:
     LANGUAGES = json.load(f)
 
 def get_text(key, lang_code, **kwargs):
-    """الحصول على نص مترجم"""
     lang = LANGUAGES.get(lang_code, LANGUAGES['en'])
     text = lang.get(key, LANGUAGES['en'].get(key, key))
     if kwargs:
@@ -16,29 +14,47 @@ def get_text(key, lang_code, **kwargs):
     return text
 
 async def download_media(url, quality_type, user_id):
-    """تحميل الوسائط"""
     import time
     timestamp = int(time.time())
     
     if not os.path.exists('downloads'):
         os.makedirs('downloads')
     
+    # إعدادات محسنة ليوتيوب وجميع المواقع
+    base_opts = {
+        'outtmpl': f'downloads/{user_id}_{timestamp}.%(ext)s',
+        'quiet': True,
+        'nocheckcertificate': True,
+        'ignoreerrors': True,
+        'no_warnings': True,
+        'extract_flat': False,
+        'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    }
+    
     if quality_type == 'audio':
         ydl_opts = {
-            'outtmpl': f'downloads/{user_id}_{timestamp}.%(ext)s',
+            **base_opts,
             'format': 'bestaudio/best',
             'postprocessors': [{
                 'key': 'FFmpegExtractAudio',
                 'preferredcodec': 'mp3',
                 'preferredquality': '192',
             }],
-            'quiet': True,
         }
-    else:
+    elif quality_type == '480p':
         ydl_opts = {
-            'outtmpl': f'downloads/{user_id}_{timestamp}.%(ext)s',
-            'format': 'best[ext=mp4]/best',
-            'quiet': True,
+            **base_opts,
+            'format': 'best[height<=480]',
+        }
+    elif quality_type == '720p':
+        ydl_opts = {
+            **base_opts,
+            'format': 'best[height<=720]',
+        }
+    else:  # best quality
+        ydl_opts = {
+            **base_opts,
+            'format': 'best',
         }
     
     try:
