@@ -312,7 +312,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         url = context.user_data.get('download_url')
         if not url:
-            await query.edit_message_text(get_text('error_download', lang))
+            # await query.edit_message_text(get_text('error_download', lang))
+            await query.delete()
             return
         
         if stars_needed == 0:
@@ -331,11 +332,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     
                     os.remove(file_path)
                     await query.delete()
-                else:
-                    await query.edit_message_text(get_text('error_download', lang))
+                # else:
+                #     await query.edit_message_text(get_text('error_download', lang))
             except Exception as e:
                 logger.error(f"Download error: {e}")
-                await query.edit_message_text(get_text('error_download', lang))
+                # await query.edit_message_text(get_text('error_download', lang))
         else:
             # طلب دفع بالنجوم
             title = get_text('download_title', lang) if quality != 'audio' else get_text('audio_title', lang)
@@ -373,7 +374,7 @@ async def successful_payment_handler(update: Update, context: ContextTypes.DEFAU
     
     url = context.user_data.get('download_url')
     if not url:
-        await update.message.reply_text(get_text('error_download', lang))
+        # await update.message.reply_text(get_text('error_download', lang))
         return
     
     status_msg = await update.message.reply_text(get_text('downloading', lang))
@@ -390,11 +391,11 @@ async def successful_payment_handler(update: Update, context: ContextTypes.DEFAU
             
             os.remove(file_path)
             await status_msg.delete()
-        else:
-            await status_msg.edit_text(get_text('error_download', lang))
+        # else:
+        #     await status_msg.edit_text(get_text('error_download', lang))
     except Exception as e:
         logger.error(f"Download error: {e}")
-        await status_msg.edit_text(get_text('error_download', lang))
+        # await status_msg.edit_text(get_text('error_download', lang))
 
 # =========================
 # معالج التحقق قبل الدفع
@@ -447,5 +448,5 @@ if __name__ == '__main__':
     app.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, successful_payment_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
-    print("✅ البوت يعمل الآن (المستخدم يدفع وأنت تربح)")
+    print("✅ البوت يعمل الآن (بدون رسائل خطأ)")
     app.run_polling()
