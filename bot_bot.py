@@ -1,33 +1,29 @@
 import os
 import logging
-from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
+from flask import Flask, request
+from telegram import Bot, Update
+import asyncio
 
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
-)
+logging.basicConfig(level=logging.INFO)
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("البوت يعمل! 🎉")
+TOKEN = os.getenv('BOT_TOKEN')
+bot = Bot(token=TOKEN)
+app = Flask(__name__)
+
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    update = Update.de_json(request.get_json(), bot)
+    asyncio.run(handle_update(update))
+    return 'OK', 200
+
+async def handle_update(update):
+    if update.message and update.message.text == '/start':
+        await update.message.reply_text('✅ البوت يعمل!')
+
+@app.route('/')
+def home():
+    return 'Bot is running!'
 
 if __name__ == '__main__':
-    TOKEN = os.getenv('BOT_TOKEN', '8373058261:AAG7_Fo2P_6kv6hHRp5xcl4QghDRpX5TryA')
-    
-    app = ApplicationBuilder().token(TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    
-    PORT = int(os.getenv('PORT', 8080))
-    RAILWAY_URL = os.getenv('RAILWAY_STATIC_URL')
-    
-    if RAILWAY_URL:
-        print(f"🚀 تشغيل على Railway مع Webhook")
-        app.run_webhook(
-            listen="0.0.0.0",
-            port=PORT,
-            url_path="webhook",
-            webhook_url=f"https://{RAILWAY_URL}/webhook"
-        )
-    else:
-        print("💻 تشغيل محلي")
-        app.run_polling()
+    port = int(os.getenv('PORT', 8080))
+    app.run(host='0.0.0.0', port=port)
