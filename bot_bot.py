@@ -421,7 +421,7 @@ async def owner_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(text)
 
 # =========================
-# التشغيل الرئيسي
+# التشغيل الرئيسي (معدل للعمل على Railway)
 # =========================
 if __name__ == '__main__':
     TOKEN = os.getenv('BOT_TOKEN', '8373058261:AAG7_Fo2P_6kv6hHRp5xcl4QghDRpX5TryA')
@@ -440,5 +440,22 @@ if __name__ == '__main__':
     app.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, successful_payment_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
-    print("✅ البوت يعمل الآن (بدون رسائل خطأ)")
-    app.run_polling()
+    # التحقق من بيئة Railway
+    PORT = int(os.getenv('PORT', 8080))
+    RAILWAY_URL = os.getenv('RAILWAY_STATIC_URL')
+    
+    if RAILWAY_URL:
+        # تشغيل على Railway باستخدام Webhook
+        WEBHOOK_URL = f"https://{RAILWAY_URL}/webhook"
+        print(f"🚀 تشغيل على Railway مع Webhook: {WEBHOOK_URL}")
+        
+        app.run_webhook(
+            listen="0.0.0.0",
+            port=PORT,
+            url_path="webhook",
+            webhook_url=WEBHOOK_URL
+        )
+    else:
+        # تشغيل محلي باستخدام Polling
+        print("💻 تشغيل محلي...")
+        app.run_polling()
