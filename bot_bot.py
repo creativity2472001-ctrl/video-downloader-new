@@ -3,13 +3,13 @@ import json
 import sqlite3
 import asyncio
 import logging
+import subprocess
 from datetime import datetime, timedelta, date
 from dataclasses import dataclass
 from typing import Optional
 import yt_dlp
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton, LabeledPrice
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, PreCheckoutQueryHandler, filters, ContextTypes
-from utils import get_text, download_media
 
 # =========================
 # إعداد التسجيل
@@ -21,28 +21,131 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # =========================
-# نظام حساب النجوم حسب مدة الفيديو (نظام بسيط للانتشار)
+# دالة التحميل (بدلاً من utils.py)
+# =========================
+async def download_media(url, quality, user_id):
+    """تحميل الوسائط باستخدام yt-dlp"""
+    try:
+        # إنشاء مجلد التحميلات إذا لم يكن موجوداً
+        download_dir = "downloads"
+        if not os.path.exists(download_dir):
+            os.makedirs(download_dir)
+        
+        # تحديد جودة التحميل
+        format_spec = 'best'
+        if quality == '480p':
+            format_spec = 'best[height<=480]'
+        elif quality == '720p':
+            format_spec = 'best[height<=720]'
+        elif quality == 'audio':
+            format_spec = 'bestaudio/best'
+        
+        # خيارات التحميل
+        ydl_opts = {
+            'format': format_spec,
+            'outtmpl': f'{download_dir}/%(title)s.%(ext)s',
+            'quiet': True,
+            'no_warnings': True,
+        }
+        
+        # تنفيذ التحميل
+        loop = asyncio.get_event_loop()
+        
+        def download():
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=True)
+                filename = ydl.prepare_filename(info)
+                return filename
+        
+        file_path = await loop.run_in_executor(None, download)
+        return file_path
+        
+    except Exception as e:
+        logger.error(f"Download error: {e}")
+        return None
+
+# =========================
+# دالة النصوص (بدلاً من utils.py)
+# =========================
+def get_text(key, lang='ar', **kwargs):
+    """الحصول على النصوص حسب اللغة"""
+    texts = {
+        'ar': {
+            'language_btn': '🌐 اللغة',
+            'help_btn': '📖 المساعدة',
+            'restart_btn': '🔄 إعادة التشغيل',
+            'choose_lang': '🌐 اختر لغتك المفضلة:',
+            'lang_set': '✅ تم تغيير اللغة بنجاح!',
+            'help_full': '📖 **تعليمات الاستخدام:**\n\n1. أرسل رابط فيديو من أي منصة\n2. اختر الجودة المناسبة\n3. استمتع بالفيديو!\n\n💰 **نظام الدفع:**\n• الفيديوهات القصيرة (أقل من دقيقة) مجانية\n• باقي الفيديوهات: كل دقيقة = نجمة واحدة\n• أول فيديو طويل كل يوم = نجمتين فقط',
+            'choose_quality': '🎯 اختر جودة التحميل',
+            'duration': '⏱️ المدة',
+            'first_video_free': '🎁 أول فيديو اليوم مجاني!',
+            'first_video_special': '🎁 أول فيديو اليوم بسعر خاص',
+            'free_label': 'مجاني ✅',
+            'quality_best': 'أفضل جودة',
+            'audio_only': 'صوت فقط',
+            'invalid_link': '❌ رابط غير صالح',
+            'downloading': '⏳ جاري التحميل...',
+            'download_title': 'تحميل فيديو',
+            'audio_title': 'تحميل صوت',
+            'payment_desc': 'عدد النجوم المطلوبة: {stars}',
+            'download_price': 'سعر التحميل',
+            'queue_restarted': '🔄 تم إعادة التشغيل'
+        },
+        'en': {
+            'language_btn': '🌐 Language',
+            'help_btn': '📖 Help',
+            'restart_btn': '🔄 Restart',
+            'choose_lang': '🌐 Choose your preferred language:',
+            'lang_set': '✅ Language changed successfully!',
+            'help_full': '📖 **Instructions:**\n\n1. Send a video link from any platform\n2. Choose quality\n3. Enjoy the video!\n\n💰 **Payment System:**\n• Short videos (<1 min) are free\n• Other videos: 1 star per minute\n• First long video daily = only 2 stars',
+            'choose_quality': '🎯 Choose download quality',
+            'duration': '⏱️ Duration',
+            'first_video_free': '🎁 First video today is free!',
+            'first_video_special': '🎁 First video today special price',
+            'free_label': 'Free ✅',
+            'quality_best': 'Best Quality',
+            'audio_only': 'Audio Only',
+            'invalid_link': '❌ Invalid link',
+            'downloading': '⏳ Downloading...',
+            'download_title': 'Download Video',
+            'audio_title': 'Download Audio',
+            'payment_desc': 'Stars required: {stars}',
+            'download_price': 'Download Price',
+            'queue_restarted': '🔄 Restarted'
+        }
+    }
+    
+    # لغات إضافية مبسطة
+    if lang not in texts:
+        lang = 'ar'
+    
+    text = texts[lang].get(key, key)
+    
+    # تنسيق النص بالمتغيرات
+    if kwargs:
+        try:
+            text = text.format(**kwargs)
+        except:
+            pass
+    
+    return text
+
+# =========================
+# نظام حساب النجوم حسب مدة الفيديو
 # =========================
 def calculate_stars(duration_seconds, is_first_video_today=False):
-    """
-    نظام بسيط للانتشار:
-    - أقل من دقيقة = مجاني
-    - أول فيديو باليوم (أكثر من دقيقة) = 2 نجوم فقط (سعر مخفض)
-    - باقي الفيديوهات = كل دقيقة = نجمة
-    """
     if is_first_video_today:
         if duration_seconds < 60:
-            return 0  # مجاني
+            return 0
         else:
-            return 2  # سعر مخفض لأول فيديو طويل (نجمتين فقط)
+            return 2
     
-    # باقي الفيديوهات
     if duration_seconds < 60:
-        return 0  # مجاني دائمًا للفيديوهات القصيرة
+        return 0
     
-    # تحويل الثواني لدقائق (تقريب لأعلى)
     minutes = (duration_seconds + 59) // 60
-    return minutes  # كل دقيقة = نجمة
+    return minutes
 
 async def get_video_duration(url):
     """الحصول على مدة الفيديو"""
@@ -55,10 +158,9 @@ async def get_video_duration(url):
         return 0
 
 # =========================
-# نظام أول فيديو كل يوم (باستخدام قاعدة بيانات)
+# نظام أول فيديو كل يوم
 # =========================
 def init_first_video_db():
-    """تهيئة قاعدة بيانات أول فيديو"""
     conn = sqlite3.connect('first_video.db')
     c = conn.cursor()
     c.execute('''
@@ -73,18 +175,15 @@ def init_first_video_db():
 init_first_video_db()
 
 def check_first_video_status(user_id):
-    """التحقق من حالة أول فيديو للمستخدم اليوم (باستخدام قاعدة البيانات)"""
     today = date.today().isoformat()
     
     conn = sqlite3.connect('first_video.db')
     c = conn.cursor()
     
-    # البحث عن المستخدم
     c.execute("SELECT last_date FROM first_video WHERE user_id = ?", (user_id,))
     row = c.fetchone()
     
     if not row:
-        # مستخدم جديد -> أول فيديو اليوم
         c.execute("INSERT INTO first_video (user_id, last_date) VALUES (?, ?)", 
                  (user_id, today))
         conn.commit()
@@ -94,19 +193,17 @@ def check_first_video_status(user_id):
     last_date = row[0]
     
     if last_date < today:
-        # يوم جديد -> أول فيديو
         c.execute("UPDATE first_video SET last_date = ? WHERE user_id = ?", 
                  (today, user_id))
         conn.commit()
         conn.close()
         return True
     else:
-        # ليس أول فيديو اليوم
         conn.close()
         return False
 
 # =========================
-# قاعدة بيانات بسيطة لتخزين إحصائياتك (اختياري)
+# قاعدة بيانات إحصائياتك
 # =========================
 stats_db = sqlite3.connect('bot_stats.db', check_same_thread=False)
 stats_cursor = stats_db.cursor()
@@ -122,7 +219,6 @@ CREATE TABLE IF NOT EXISTS bot_earnings (
 stats_db.commit()
 
 def add_earnings(stars: int):
-    """تسجيل الأرباح (لمعرفتك أنت فقط)"""
     today = datetime.now().strftime('%Y-%m-%d')
     stats_cursor.execute('''
     INSERT INTO bot_earnings (date, total_stars, total_downloads)
@@ -146,7 +242,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user_id not in user_lang:
         user_lang[user_id] = 'ar'
     
-    # التحقق من حالة أول فيديو لليوم
     is_first = check_first_video_status(user_id)
     
     first_video_text = ""
@@ -165,11 +260,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "💰 **نظام الأسعار (بسيط وعادل):**\n"
         "• كل الفيديوهات أقل من دقيقة = مجاني ✅\n"
         "• أول فيديو باليوم (أكثر من دقيقة) = نجمتين فقط ⭐2\n"
-        "• باقي الفيديوهات = كل دقيقة = نجمة ⭐\n"
-        "• مثال: فيديو 5 دقائق = 5 نجوم\n\n"
-        "🎁 **عرض خاص:** أول فيديو كل يوم:\n"
-        "• أقل من دقيقة = مجاني!\n"
-        "• أكثر من دقيقة = نجمتين فقط!\n\n"
+        "• باقي الفيديوهات = كل دقيقة = نجمة ⭐\n\n"
         "أرسل رابط فيديو للبدء"
     )
     
@@ -184,10 +275,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     lang = user_lang.get(user_id, 'ar')
-    
-    help_text = get_text('help_full', lang)
-    
-    await update.message.reply_text(help_text)
+    await update.message.reply_text(get_text('help_full', lang))
 
 # =========================
 # معالج اللغة
@@ -196,9 +284,7 @@ async def language_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     keyboard = [
         [InlineKeyboardButton("🇸🇦 عربي", callback_data='lang_ar'),
-         InlineKeyboardButton("🇺🇸 English", callback_data='lang_en')],
-        [InlineKeyboardButton("🇹🇷 Türkçe", callback_data='lang_tr'),
-         InlineKeyboardButton("🇷🇺 Русский", callback_data='lang_ru')]
+         InlineKeyboardButton("🇺🇸 English", callback_data='lang_en')]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text(
@@ -220,7 +306,7 @@ async def restart_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await start(update, context)
 
 # =========================
-# معالج الروابط وعرض خيارات الجودة
+# معالج الروابط
 # =========================
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
@@ -228,28 +314,21 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lang = user_lang.get(user_id, 'ar')
     
     # معالجة أزرار القائمة
-    if text in [get_text('language_btn', 'ar'), get_text('language_btn', 'en'),
-                get_text('language_btn', 'tr'), get_text('language_btn', 'ru')]:
+    if text in [get_text('language_btn', 'ar'), get_text('language_btn', 'en')]:
         await language_command(update, context)
         return
-    elif text in [get_text('help_btn', 'ar'), get_text('help_btn', 'en'),
-                  get_text('help_btn', 'tr'), get_text('help_btn', 'ru')]:
+    elif text in [get_text('help_btn', 'ar'), get_text('help_btn', 'en')]:
         await help_command(update, context)
         return
-    elif text in [get_text('restart_btn', 'ar'), get_text('restart_btn', 'en'),
-                  get_text('restart_btn', 'tr'), get_text('restart_btn', 'ru')]:
+    elif text in [get_text('restart_btn', 'ar'), get_text('restart_btn', 'en')]:
         await restart_command(update, context)
         return
     
     # معالجة الروابط
     if text.startswith(('http://', 'https://')):
-        # حفظ الرابط مؤقتاً
         context.user_data['download_url'] = text
         
-        # التحقق من حالة أول فيديو لليوم
         is_first = check_first_video_status(user_id)
-        
-        # حساب مدة الفيديو والنجوم المطلوبة
         duration = await get_video_duration(text)
         stars_needed = calculate_stars(duration, is_first)
         
@@ -257,15 +336,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         seconds = int(duration % 60)
         
         stars_display = get_text('free_label', lang) if stars_needed == 0 else f"⭐{stars_needed}"
-        
-        # رسالة المدة
         duration_text = f"\n⏱️ {get_text('duration', lang)}: {minutes}:{seconds:02d}"
-        
-        if is_first:
-            if stars_needed == 0:
-                duration_text += f"\n🎁 {get_text('first_video_free', lang)}"
-            else:
-                duration_text += f"\n🎁 {get_text('first_video_special', lang)}: {stars_display}"
         
         keyboard = [
             [
@@ -287,7 +358,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(get_text('invalid_link', lang))
 
 # =========================
-# معالج الأزرار (اختيار الجودة وطلب الدفع)
+# معالج الأزرار
 # =========================
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -297,14 +368,12 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     lang = user_lang.get(user_id, 'ar')
     
-    # معالجة تغيير اللغة
     if data.startswith('lang_'):
         new_lang = data.split('_')[1]
         user_lang[user_id] = new_lang
         await query.edit_message_text(get_text('lang_set', new_lang))
         return
     
-    # معالجة اختيار الجودة وطلب الدفع
     if data.startswith('quality_'):
         parts = data.split('_')
         quality = parts[1]
@@ -316,7 +385,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         
         if stars_needed == 0:
-            # تحميل مجاني
             await query.edit_message_text(get_text('downloading', lang))
             
             try:
@@ -334,7 +402,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except Exception as e:
                 logger.error(f"Download error: {e}")
         else:
-            # طلب دفع بالنجوم
             title = get_text('download_title', lang) if quality != 'audio' else get_text('audio_title', lang)
             description = get_text('payment_desc', lang, stars=stars_needed)
             payload = f"{quality}_{stars_needed}_{user_id}"
@@ -359,13 +426,11 @@ async def successful_payment_handler(update: Update, context: ContextTypes.DEFAU
     user_id = update.effective_user.id
     lang = user_lang.get(user_id, 'ar')
     
-    # استخراج معلومات الدفع
     payload = update.message.successful_payment.invoice_payload
     parts = payload.split('_')
     quality = parts[0]
     stars_paid = int(parts[1])
     
-    # تسجيل الأرباح (لمعرفتك أنت فقط)
     add_earnings(stars_paid)
     
     url = context.user_data.get('download_url')
@@ -397,11 +462,11 @@ async def pre_checkout_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     await query.answer(ok=True)
 
 # =========================
-# أمر إحصائيات (للمطور فقط) - لمعرفة أرباحك
+# أمر إحصائيات (للمطور فقط)
 # =========================
 async def owner_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    OWNER_ID = 8373058261  # ضع معرفك هنا
+    OWNER_ID = 8373058261
     
     if user_id != OWNER_ID:
         return
@@ -433,7 +498,7 @@ if __name__ == '__main__':
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("language", language_command))
     app.add_handler(CommandHandler("restart", restart_command))
-    app.add_handler(CommandHandler("stats", owner_stats))  # للمطور فقط
+    app.add_handler(CommandHandler("stats", owner_stats))
     
     app.add_handler(CallbackQueryHandler(button_handler))
     app.add_handler(PreCheckoutQueryHandler(pre_checkout_handler))
