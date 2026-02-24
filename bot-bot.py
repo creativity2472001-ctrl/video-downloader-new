@@ -1,8 +1,8 @@
 import os
 import logging
+import asyncio
 from flask import Flask, request
 from telegram import Bot, Update
-import asyncio
 
 # إعداد التسجيل
 logging.basicConfig(level=logging.INFO)
@@ -18,6 +18,10 @@ bot = Bot(token=TOKEN)
 # إنشاء تطبيق Flask
 app = Flask(__name__)
 
+# حلقة تشغيل asyncio عالمية
+loop = asyncio.new_event_loop()
+asyncio.set_event_loop(loop)
+
 # نقطة نهاية Webhook
 @app.route('/webhook', methods=['POST'])
 def webhook():
@@ -25,7 +29,10 @@ def webhook():
     try:
         logger.info("📩 تم استقبال تحديث من تيليجرام")
         update = Update.de_json(request.get_json(force=True), bot)
-        asyncio.run(handle_update(update))
+        
+        # إضافة المهمة إلى الحلقة بدلاً من إنشاء حلقة جديدة
+        asyncio.run_coroutine_threadsafe(handle_update(update), loop)
+        
         return 'OK', 200
     except Exception as e:
         logger.error(f"خطأ في webhook: {e}")
@@ -56,13 +63,38 @@ def home():
 def health():
     return 'OK', 200
 
+@app.route('/set_webhook')
+def set_webhook():
+    """تعيين Webhook (اتصل به مرة واحدة فقط)"""
+    try:
+        webhook_url = f"https://video-downloader-bot.onrender.com/webhook"
+        asyncio.run(bot.set_webhook(url=webhook_url))
+        return f"✅ Webhook مضبوط على: {webhook_url}", 200
+    except Exception as e:
+        return f"❌ خطأ: {e}", 500
+
+def start_background_loop():
+    """تشغيل حلقة asyncio في الخلفية"""
+    loop.run_forever()
+
 if __name__ == '__main__':
     logger.info(f"🚀 تشغيل البوت على المنفذ {PORT}")
     
-    # تعيين Webhook
+    # تعيين Webhook عند بدء التشغيل
     webhook_url = f"https://video-downloader-bot.onrender.com/webhook"
-    asyncio.run(bot.set_webhook(url=webhook_url))
-    logger.info(f"✅ Webhook مضبوط على: {webhook_url}")
+    try:
+        # استخدام run_coroutine_threadsafe بدلاً من asyncio.run
+        future = asyncio.run_coroutine_threadsafe(
+            bot.set_webhook(url=webhook_url), loop
+        )
+        future.result(timeout=10)  # انتظر حتى يكتمل
+        logger.info(f"✅ Webhook مضبوط على: {webhook_url}")
+    except Exception as e:
+        logger.error(f"❌ فشل تعيين Webhook: {e}")
+    
+    # تشغيل حلقة asyncio في الخلفية
+    import threading
+    threading.Thread(target=start_background_loop, daemon=True).start()
     
     # تشغيل Flask
     app.run(host='0.0.0.0', port=PORT)
