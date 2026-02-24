@@ -1,3 +1,5 @@
-python-telegram-bot==21.10
-yt-dlp
+python-telegram-bot==20.7
+yt-dlp==2026.2.21
 Flask==2.3.3
+gunicorn==21.2.0
+python-dotenv==1.0.0
