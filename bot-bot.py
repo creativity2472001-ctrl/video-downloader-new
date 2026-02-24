@@ -3,7 +3,7 @@ import logging
 from flask import Flask, request
 from telegram import Bot, Update
 import asyncio
-from utils import get_text, download_media  # استيراد من utils.py ✅
+from utils import get_text, download_media
 
 # إعداد التسجيل
 logging.basicConfig(level=logging.INFO)
@@ -27,6 +27,7 @@ user_lang = {}
 def webhook():
     """استقبال التحديثات من تيليجرام"""
     try:
+        logger.info("📩 تم استقبال تحديث من تيليجرام")
         update = Update.de_json(request.get_json(force=True), bot)
         asyncio.run(handle_update(update))
         return 'OK', 200
@@ -42,22 +43,11 @@ async def handle_update(update):
             chat_id = update.message.chat_id
             user_id = update.message.from_user.id
             
-            # تعيين اللغة الافتراضية
-            if user_id not in user_lang:
-                user_lang[user_id] = 'ar'
+            logger.info(f"رسالة من {user_id}: {text}")
             
-            lang = user_lang[user_id]
+            # رد بسيط للتجربة
+            await update.message.reply_text(f"✅ استقبلت رسالتك: {text}")
             
-            if text == '/start':
-                await update.message.reply_text(get_text('welcome', lang))
-            elif text == '/help':
-                await update.message.reply_text(get_text('help_full', lang))
-            elif text.startswith(('http://', 'https://')):
-                await update.message.reply_text(get_text('choose_quality', lang))
-                # هنا هتضيف منطق التحميل لاحقاً
-            else:
-                await update.message.reply_text(f"{get_text('invalid_link', lang)}")
-                
     except Exception as e:
         logger.error(f"خطأ في معالجة التحديث: {e}")
 
@@ -66,7 +56,6 @@ async def handle_update(update):
 def home():
     return 'البوت شغال! 🚀'
 
-# نقطة نهاية لفحص الصحة
 @app.route('/health')
 def health():
     return 'OK', 200
@@ -74,7 +63,7 @@ def health():
 if __name__ == '__main__':
     logger.info(f"🚀 تشغيل البوت على المنفذ {PORT}")
     
-    # تعيين Webhook يدوياً
+    # تعيين Webhook
     webhook_url = f"https://video-downloader-bot.onrender.com/webhook"
     asyncio.run(bot.set_webhook(url=webhook_url))
     logger.info(f"✅ Webhook مضبوط على: {webhook_url}")
