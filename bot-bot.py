@@ -3,7 +3,6 @@ import logging
 from flask import Flask, request
 from telegram import Bot, Update
 import asyncio
-from utils import get_text, download_media
 
 # إعداد التسجيل
 logging.basicConfig(level=logging.INFO)
@@ -18,9 +17,6 @@ bot = Bot(token=TOKEN)
 
 # إنشاء تطبيق Flask
 app = Flask(__name__)
-
-# تخزين لغة المستخدم
-user_lang = {}
 
 # نقطة نهاية Webhook
 @app.route('/webhook', methods=['POST'])
@@ -46,7 +42,7 @@ async def handle_update(update):
             logger.info(f"رسالة من {user_id}: {text}")
             
             # رد بسيط للتجربة
-            await update.message.reply_text(f"✅ استقبلت رسالتك: {text}")
+            await update.message.reply_text(f"✅ البوت يعلم! استقبلت رسالتك: {text}")
             
     except Exception as e:
         logger.error(f"خطأ في معالجة التحديث: {e}")
