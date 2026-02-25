@@ -270,18 +270,19 @@ bot_app.add_handler(CommandHandler("start", download_bot.start))
 bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, download_bot.handle_url))
 bot_app.add_handler(CallbackQueryHandler(download_bot.handle_callback))
 
+# ========== التعديلات المهمة هنا ==========
 @app.route('/webhook', methods=['POST'])
-def webhook():
-    """نقطة نهاية Webhook"""
+async def webhook():
+    """نقطة نهاية Webhook (معدلة)"""
     update = Update.de_json(request.get_json(force=True), bot_app.bot)
-    bot_app.process_update(update)
+    await bot_app.process_update(update)  # ✅ await
     return 'OK', 200
 
 @app.route('/set_webhook', methods=['GET'])
-def set_webhook():
-    """تعيين Webhook"""
+async def set_webhook():
+    """تعيين Webhook (معدلة)"""
     webhook_url = f"https://{os.getenv('RENDER_EXTERNAL_URL', 'localhost')}/webhook"
-    bot_app.bot.set_webhook(url=webhook_url)
+    await bot_app.bot.set_webhook(url=webhook_url)  # ✅ await
     return f"✅ Webhook set to {webhook_url}", 200
 
 @app.route('/')
@@ -291,10 +292,15 @@ def home():
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 10000))
     
-    # تعيين Webhook عند بدء التشغيل
+    # تعيين Webhook عند بدء التشغيل (معدل)
     webhook_url = f"https://{os.getenv('RENDER_EXTERNAL_URL', 'localhost')}/webhook"
-    bot_app.bot.set_webhook(url=webhook_url)
-    logger.info(f"✅ Webhook set to {webhook_url}")
+    
+    async def set_webhook_startup():
+        await bot_app.bot.set_webhook(url=webhook_url)
+        logger.info(f"✅ Webhook set to {webhook_url}")
+    
+    # تشغيل async function
+    asyncio.run(set_webhook_startup())
     
     # تشغيل Flask
     app.run(host='0.0.0.0', port=port)
