@@ -287,7 +287,7 @@ def webhook():
 def set_webhook():
     """تعيين Webhook (متزامن)"""
     try:
-        webhook_url = f"https://{os.getenv('RENDER_EXTERNAL_URL', 'video-downloader-new-npmd.onrender.com')}/webhook"
+        webhook_url = "https://video-downloader-new-npmd.onrender.com/webhook"
         asyncio.run(bot_app.bot.set_webhook(url=webhook_url))
         return f"✅ Webhook set to {webhook_url}", 200
     except Exception as e:
@@ -305,7 +305,7 @@ if __name__ == '__main__':
     port = int(os.environ.get('PORT', 10000))
     
     # تعيين Webhook عند بدء التشغيل (متزامن)
-    webhook_url = f"https://{os.getenv('RENDER_EXTERNAL_URL', 'video-downloader-new-npmd.onrender.com')}/webhook"
+    webhook_url = "https://video-downloader-new-npmd.onrender.com/webhook"
     try:
         asyncio.run(bot_app.bot.set_webhook(url=webhook_url))
         logger.info(f"✅ Webhook set to {webhook_url}")
