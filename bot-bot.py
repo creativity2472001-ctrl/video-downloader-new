@@ -270,14 +270,17 @@ bot_app.add_handler(CommandHandler("start", download_bot.start))
 bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, download_bot.handle_url))
 bot_app.add_handler(CallbackQueryHandler(download_bot.handle_callback))
 
-# ========== التعديلات النهائية (متزامنة) ==========
+# ========== التعديلات النهائية ==========
 @app.route('/webhook', methods=['POST'])
 def webhook():
-    """نقطة نهاية Webhook (متزامنة)"""
+    """نقطة نهاية Webhook"""
     try:
         update = Update.de_json(request.get_json(force=True), bot_app.bot)
-        # تشغيل الدالة غير المتزامنة بشكل متزامن
-        asyncio.run(bot_app.process_update(update))
+        # إنشاء حلقة asyncio جديدة لكل طلب
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(bot_app.process_update(update))
+        loop.close()
         return 'OK', 200
     except Exception as e:
         logger.error(f"Webhook error: {e}")
@@ -285,10 +288,14 @@ def webhook():
 
 @app.route('/set_webhook', methods=['GET'])
 def set_webhook():
-    """تعيين Webhook (متزامن)"""
+    """تعيين Webhook"""
     try:
         webhook_url = "https://video-downloader-new-npmd.onrender.com/webhook"
-        asyncio.run(bot_app.bot.set_webhook(url=webhook_url))
+        # إنشاء حلقة جديدة لتعيين webhook
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(bot_app.bot.set_webhook(url=webhook_url))
+        loop.close()
         return f"✅ Webhook set to {webhook_url}", 200
     except Exception as e:
         return f"❌ Error: {e}", 500
@@ -304,10 +311,13 @@ def ping():
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 10000))
     
-    # تعيين Webhook عند بدء التشغيل (متزامن)
+    # تعيين Webhook عند بدء التشغيل
     webhook_url = "https://video-downloader-new-npmd.onrender.com/webhook"
     try:
-        asyncio.run(bot_app.bot.set_webhook(url=webhook_url))
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(bot_app.bot.set_webhook(url=webhook_url))
+        loop.close()
         logger.info(f"✅ Webhook set to {webhook_url}")
     except Exception as e:
         logger.error(f"❌ Failed to set webhook: {e}")
