@@ -270,20 +270,32 @@ bot_app.add_handler(CommandHandler("start", download_bot.start))
 bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, download_bot.handle_url))
 bot_app.add_handler(CallbackQueryHandler(download_bot.handle_callback))
 
-# ========== التعديلات النهائية ==========
+# ========== التعديلات النهائية مع سطور التشخيص ==========
 @app.route('/webhook', methods=['POST'])
 def webhook():
-    """نقطة نهاية Webhook"""
+    """نقطة نهاية Webhook مع تشخيص"""
     try:
-        update = Update.de_json(request.get_json(force=True), bot_app.bot)
-        # إنشاء حلقة asyncio جديدة لكل طلب
+        # ✅ سجل أن الطلب وصل
+        logger.info("📩 Received webhook request")
+        
+        # ✅ سجل البيانات الخام
+        data = request.get_json(force=True)
+        logger.info(f"📦 Raw data: {data}")
+        
+        # ✅ إنشاء Update
+        update = Update.de_json(data, bot_app.bot)
+        logger.info(f"🔄 Update created: {update.update_id}")
+        
+        # ✅ معالجة التحديث
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         loop.run_until_complete(bot_app.process_update(update))
         loop.close()
+        
+        logger.info("✅ Update processed successfully")
         return 'OK', 200
     except Exception as e:
-        logger.error(f"Webhook error: {e}")
+        logger.error(f"❌ Webhook error: {e}")
         return 'Error', 500
 
 @app.route('/set_webhook', methods=['GET'])
@@ -291,7 +303,6 @@ def set_webhook():
     """تعيين Webhook"""
     try:
         webhook_url = "https://video-downloader-new-npmd.onrender.com/webhook"
-        # إنشاء حلقة جديدة لتعيين webhook
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         loop.run_until_complete(bot_app.bot.set_webhook(url=webhook_url))
