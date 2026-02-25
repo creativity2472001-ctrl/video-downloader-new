@@ -270,37 +270,47 @@ bot_app.add_handler(CommandHandler("start", download_bot.start))
 bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, download_bot.handle_url))
 bot_app.add_handler(CallbackQueryHandler(download_bot.handle_callback))
 
-# ========== التعديلات المهمة هنا ==========
+# ========== التعديلات النهائية (متزامنة) ==========
 @app.route('/webhook', methods=['POST'])
-async def webhook():
-    """نقطة نهاية Webhook (معدلة)"""
-    update = Update.de_json(request.get_json(force=True), bot_app.bot)
-    await bot_app.process_update(update)  # ✅ await
-    return 'OK', 200
+def webhook():
+    """نقطة نهاية Webhook (متزامنة)"""
+    try:
+        update = Update.de_json(request.get_json(force=True), bot_app.bot)
+        # تشغيل الدالة غير المتزامنة بشكل متزامن
+        asyncio.run(bot_app.process_update(update))
+        return 'OK', 200
+    except Exception as e:
+        logger.error(f"Webhook error: {e}")
+        return 'Error', 500
 
 @app.route('/set_webhook', methods=['GET'])
-async def set_webhook():
-    """تعيين Webhook (معدلة)"""
-    webhook_url = f"https://{os.getenv('RENDER_EXTERNAL_URL', 'localhost')}/webhook"
-    await bot_app.bot.set_webhook(url=webhook_url)  # ✅ await
-    return f"✅ Webhook set to {webhook_url}", 200
+def set_webhook():
+    """تعيين Webhook (متزامن)"""
+    try:
+        webhook_url = f"https://{os.getenv('RENDER_EXTERNAL_URL', 'video-downloader-new-npmd.onrender.com')}/webhook"
+        asyncio.run(bot_app.bot.set_webhook(url=webhook_url))
+        return f"✅ Webhook set to {webhook_url}", 200
+    except Exception as e:
+        return f"❌ Error: {e}", 500
 
 @app.route('/')
 def home():
     return '🤖 Bot is running!'
 
+@app.route('/ping')
+def ping():
+    return 'pong', 200
+
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 10000))
     
-    # تعيين Webhook عند بدء التشغيل (معدل)
-    webhook_url = f"https://{os.getenv('RENDER_EXTERNAL_URL', 'localhost')}/webhook"
-    
-    async def set_webhook_startup():
-        await bot_app.bot.set_webhook(url=webhook_url)
+    # تعيين Webhook عند بدء التشغيل (متزامن)
+    webhook_url = f"https://{os.getenv('RENDER_EXTERNAL_URL', 'video-downloader-new-npmd.onrender.com')}/webhook"
+    try:
+        asyncio.run(bot_app.bot.set_webhook(url=webhook_url))
         logger.info(f"✅ Webhook set to {webhook_url}")
-    
-    # تشغيل async function
-    asyncio.run(set_webhook_startup())
+    except Exception as e:
+        logger.error(f"❌ Failed to set webhook: {e}")
     
     # تشغيل Flask
     app.run(host='0.0.0.0', port=port)
