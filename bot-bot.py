@@ -6,6 +6,10 @@ import tempfile
 from pathlib import Path
 from typing import Dict, Optional
 from datetime import datetime
+import nest_asyncio
+
+# هذا مهم جداً لحل مشكلة Event Loop
+nest_asyncio.apply()
 
 import yt_dlp
 from flask import Flask, request, jsonify
@@ -66,6 +70,10 @@ except FileNotFoundError:
 # متغيرات البيئة
 TOKEN = os.getenv('BOT_TOKEN')
 DEFAULT_LANG = os.getenv('BOT_LANG', 'ar')
+
+if not TOKEN:
+    logger.error("❌ BOT_TOKEN not set in environment variables!")
+    exit(1)
 
 # تخزين لغة كل مستخدم
 user_languages = {}
@@ -296,6 +304,10 @@ class DownloadBot:
 # إنشاء تطبيق Flask
 app = Flask(__name__)
 
+# إنشاء Event Loop عام
+loop = asyncio.new_event_loop()
+asyncio.set_event_loop(loop)
+
 # إنشاء البوت
 bot_app = Application.builder().token(TOKEN).build()
 download_bot = DownloadBot()
@@ -305,27 +317,30 @@ bot_app.add_handler(CommandHandler("start", download_bot.start))
 bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, download_bot.handle_url))
 bot_app.add_handler(CallbackQueryHandler(download_bot.handle_callback))
 
+# تهيئة البوت
+loop.run_until_complete(bot_app.initialize())
+
 # ========== الرابط الصحيح لمشروعك على Render ==========
-RENDER_URL = "https://video-downloader-new-npmd.onrender.com"  # ✅ هذا هو الرابط الصحيح
+RENDER_URL = "https://video-downloader-new-npmd.onrender.com"
 WEBHOOK_URL = f"{RENDER_URL}/webhook"
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
-    """نقطة نهاية Webhook"""
+    """نقطة نهاية Webhook - نسخة محسنة نهائياً"""
     try:
         logger.info(f"📩 Received webhook request")
         
         data = request.get_json(force=True)
-        logger.info(f"📦 Update received: {data.get('update_id') if data else 'No data'}")
+        update_id = data.get('update_id', 'unknown')
+        logger.info(f"📦 Update received: {update_id}")
         
         update = Update.de_json(data, bot_app.bot)
         
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
+        # استخدام Event Loop العام
+        global loop
         loop.run_until_complete(bot_app.process_update(update))
-        loop.close()
         
-        logger.info("✅ Update processed successfully")
+        logger.info(f"✅ Update {update_id} processed successfully")
         return 'OK', 200
     except Exception as e:
         logger.error(f"❌ Webhook error: {e}")
@@ -335,26 +350,31 @@ def webhook():
 def set_webhook():
     """تعيين Webhook"""
     try:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
+        global loop
         result = loop.run_until_complete(bot_app.bot.set_webhook(url=WEBHOOK_URL))
-        loop.close()
         
         if result:
-            return f"✅ Webhook set successfully to {WEBHOOK_URL}", 200
+            # التحقق من الإعداد
+            webhook_info = loop.run_until_complete(bot_app.bot.get_webhook_info())
+            return jsonify({
+                'status': 'success',
+                'message': f'✅ Webhook set to {WEBHOOK_URL}',
+                'webhook_info': {
+                    'url': webhook_info.url,
+                    'pending_count': webhook_info.pending_update_count
+                }
+            }), 200
         else:
-            return "❌ Failed to set webhook", 500
+            return jsonify({'status': 'error', 'message': '❌ Failed to set webhook'}), 500
     except Exception as e:
-        return f"❌ Error: {e}", 500
+        return jsonify({'status': 'error', 'message': str(e)}), 500
 
 @app.route('/webhook-info', methods=['GET'])
 def webhook_info():
     """فحص حالة Webhook"""
     try:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
+        global loop
         webhook_info = loop.run_until_complete(bot_app.bot.get_webhook_info())
-        loop.close()
         
         return jsonify({
             'url': webhook_info.url,
@@ -362,7 +382,8 @@ def webhook_info():
             'pending_update_count': webhook_info.pending_update_count,
             'max_connections': webhook_info.max_connections,
             'last_error_date': webhook_info.last_error_date,
-            'last_error_message': webhook_info.last_error_message
+            'last_error_message': webhook_info.last_error_message,
+            'is_working': webhook_info.url == WEBHOOK_URL
         }), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -384,7 +405,8 @@ def debug():
         'webhook_url': WEBHOOK_URL,
         'bot_token_set': bool(TOKEN),
         'bot_token_first_chars': TOKEN[:10] + '...' if TOKEN else None,
-        'default_lang': DEFAULT_LANG
+        'default_lang': DEFAULT_LANG,
+        'python_version': os.sys.version
     }), 200
 
 if __name__ == '__main__':
@@ -393,13 +415,9 @@ if __name__ == '__main__':
     # تعيين Webhook عند بدء التشغيل
     logger.info(f"🔗 Setting webhook to: {WEBHOOK_URL}")
     try:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
         result = loop.run_until_complete(bot_app.bot.set_webhook(url=WEBHOOK_URL))
-        loop.close()
-        
         if result:
-            logger.info(f"✅ Webhook set successfully to {WEBHOOK_URL}")
+            logger.info(f"✅ Webhook set successfully")
         else:
             logger.error("❌ Failed to set webhook")
     except Exception as e:
