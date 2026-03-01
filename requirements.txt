@@ -3,3 +3,4 @@ yt-dlp==2026.2.21
 Flask==2.3.3
 gunicorn==21.2.0
 python-dotenv==1.0.0
+nest-asyncio==1.6.0
