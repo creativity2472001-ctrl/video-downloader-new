@@ -8,7 +8,7 @@ from typing import Dict, Optional
 from datetime import datetime
 
 import yt_dlp
-from flask import Flask, request
+from flask import Flask, request, jsonify
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 from telegram.constants import ParseMode
@@ -21,8 +21,47 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # تحميل ملف اللغات
-with open('languages.json', 'r', encoding='utf-8') as f:
-    LANGUAGES = json.load(f)
+try:
+    with open('languages.json', 'r', encoding='utf-8') as f:
+        LANGUAGES = json.load(f)
+except FileNotFoundError:
+    # لغة افتراضية إذا لم يوجد الملف
+    LANGUAGES = {
+        "ar": {
+            "welcome": "أهلاً بك! أرسل رابط الفيديو للتحميل",
+            "language_btn": "🌐 اللغة",
+            "help_btn": "❓ مساعدة",
+            "restart_btn": "🔄 إعادة تشغيل",
+            "choose_lang": "اختر لغتك المفضلة:",
+            "lang_set": "✅ تم تعيين اللغة بنجاح",
+            "invalid_link": "❌ رابط غير صالح",
+            "choose_quality": "اختر جودة التحميل:",
+            "duration": "المدة",
+            "quality_480p": "480p",
+            "quality_720p": "720p",
+            "quality_best": "أعلى جودة",
+            "audio_only": "🎵 صوت فقط",
+            "downloading": "⏳ جاري التحميل...",
+            "error": "❌ خطأ: {error}"
+        },
+        "en": {
+            "welcome": "Welcome! Send me a video link to download",
+            "language_btn": "🌐 Language",
+            "help_btn": "❓ Help",
+            "restart_btn": "🔄 Restart",
+            "choose_lang": "Choose your preferred language:",
+            "lang_set": "✅ Language set successfully",
+            "invalid_link": "❌ Invalid link",
+            "choose_quality": "Choose download quality:",
+            "duration": "Duration",
+            "quality_480p": "480p",
+            "quality_720p": "720p",
+            "quality_best": "Best quality",
+            "audio_only": "🎵 Audio only",
+            "downloading": "⏳ Downloading...",
+            "error": "❌ Error: {error}"
+        }
+    }
 
 # متغيرات البيئة
 TOKEN = os.getenv('BOT_TOKEN')
@@ -78,10 +117,6 @@ class DownloadBot:
                     InlineKeyboardButton("🇸🇦 العربية", callback_data='lang_ar'),
                     InlineKeyboardButton("🇬🇧 English", callback_data='lang_en')
                 ],
-                [
-                    InlineKeyboardButton("🇹🇷 Türkçe", callback_data='lang_tr'),
-                    InlineKeyboardButton("🇷🇺 Русский", callback_data='lang_ru')
-                ],
                 [InlineKeyboardButton("🔙 رجوع", callback_data='menu_back')]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
@@ -93,7 +128,7 @@ class DownloadBot:
             
         elif data == 'menu_help':
             # عرض تعليمات التحميل حسب اللغة
-            help_text = LANGUAGES.get(user_languages.get(user_id, 'ar'), {}).get('help_full', '')
+            help_text = self.get_text(user_id, 'welcome') + "\n\nأرسل رابط فيديو من أي موقع"
             keyboard = [[InlineKeyboardButton("🔙 رجوع", callback_data='menu_back')]]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
@@ -107,7 +142,7 @@ class DownloadBot:
             # إعادة التشغيل (مسح البيانات)
             context.user_data.clear()
             await query.edit_message_text(
-                self.get_text(user_id, 'queue_restarted')
+                "✅ تمت إعادة التشغيل"
             )
             # إظهار القائمة الرئيسية مرة أخرى
             await self.start(update, context)
@@ -270,23 +305,21 @@ bot_app.add_handler(CommandHandler("start", download_bot.start))
 bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, download_bot.handle_url))
 bot_app.add_handler(CallbackQueryHandler(download_bot.handle_callback))
 
-# ========== التعديلات النهائية مع سطور التشخيص ==========
+# ========== الرابط الصحيح لمشروعك على Render ==========
+RENDER_URL = "https://video-downloader-new-npmd.onrender.com"  # ✅ هذا هو الرابط الصحيح
+WEBHOOK_URL = f"{RENDER_URL}/webhook"
+
 @app.route('/webhook', methods=['POST'])
 def webhook():
-    """نقطة نهاية Webhook مع تشخيص"""
+    """نقطة نهاية Webhook"""
     try:
-        # ✅ سجل أن الطلب وصل
-        logger.info("📩 Received webhook request")
+        logger.info(f"📩 Received webhook request")
         
-        # ✅ سجل البيانات الخام
         data = request.get_json(force=True)
-        logger.info(f"📦 Raw data: {data}")
+        logger.info(f"📦 Update received: {data.get('update_id') if data else 'No data'}")
         
-        # ✅ إنشاء Update
         update = Update.de_json(data, bot_app.bot)
-        logger.info(f"🔄 Update created: {update.update_id}")
         
-        # ✅ معالجة التحديث
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         loop.run_until_complete(bot_app.process_update(update))
@@ -302,14 +335,37 @@ def webhook():
 def set_webhook():
     """تعيين Webhook"""
     try:
-        webhook_url = "https://video-downloader-new-npmd.onrender.com/webhook"
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-        loop.run_until_complete(bot_app.bot.set_webhook(url=webhook_url))
+        result = loop.run_until_complete(bot_app.bot.set_webhook(url=WEBHOOK_URL))
         loop.close()
-        return f"✅ Webhook set to {webhook_url}", 200
+        
+        if result:
+            return f"✅ Webhook set successfully to {WEBHOOK_URL}", 200
+        else:
+            return "❌ Failed to set webhook", 500
     except Exception as e:
         return f"❌ Error: {e}", 500
+
+@app.route('/webhook-info', methods=['GET'])
+def webhook_info():
+    """فحص حالة Webhook"""
+    try:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        webhook_info = loop.run_until_complete(bot_app.bot.get_webhook_info())
+        loop.close()
+        
+        return jsonify({
+            'url': webhook_info.url,
+            'has_custom_certificate': webhook_info.has_custom_certificate,
+            'pending_update_count': webhook_info.pending_update_count,
+            'max_connections': webhook_info.max_connections,
+            'last_error_date': webhook_info.last_error_date,
+            'last_error_message': webhook_info.last_error_message
+        }), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/')
 def home():
@@ -319,19 +375,36 @@ def home():
 def ping():
     return 'pong', 200
 
+@app.route('/debug')
+def debug():
+    """معلومات التشخيص"""
+    return jsonify({
+        'status': 'running',
+        'render_url': RENDER_URL,
+        'webhook_url': WEBHOOK_URL,
+        'bot_token_set': bool(TOKEN),
+        'bot_token_first_chars': TOKEN[:10] + '...' if TOKEN else None,
+        'default_lang': DEFAULT_LANG
+    }), 200
+
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 10000))
     
     # تعيين Webhook عند بدء التشغيل
-    webhook_url = "https://video-downloader-new-npmd.onrender.com/webhook"
+    logger.info(f"🔗 Setting webhook to: {WEBHOOK_URL}")
     try:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-        loop.run_until_complete(bot_app.bot.set_webhook(url=webhook_url))
+        result = loop.run_until_complete(bot_app.bot.set_webhook(url=WEBHOOK_URL))
         loop.close()
-        logger.info(f"✅ Webhook set to {webhook_url}")
+        
+        if result:
+            logger.info(f"✅ Webhook set successfully to {WEBHOOK_URL}")
+        else:
+            logger.error("❌ Failed to set webhook")
     except Exception as e:
         logger.error(f"❌ Failed to set webhook: {e}")
     
     # تشغيل Flask
+    logger.info(f"🚀 Starting Flask server on port {port}")
     app.run(host='0.0.0.0', port=port)
